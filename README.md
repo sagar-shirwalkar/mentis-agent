@@ -226,7 +226,7 @@ args:
   - coding_agent.acp.server
   - --profile
   - large_model
-version: 0.2.5
+version: 0.2.6
 ```
 
 3. **Add an icon** — use the icon at [`assets/meredith.svg`](assets/meredith.svg).
@@ -259,8 +259,8 @@ The project uses GitHub Actions for continuous integration and automated publish
 
 ```bash
 # 1. Tag the release
-git tag v0.2.5
-git push origin v0.2.5
+git tag v0.2.6
+git push origin v0.2.6
 
 # 2. Create a GitHub Release from the tag
 #    The CI pipeline will automatically build and publish to PyPI.
