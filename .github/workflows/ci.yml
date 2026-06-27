@@ -50,5 +50,3 @@ jobs:
           version: "0.6.x"
       - run: uv build
       - run: uv publish
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
