@@ -126,6 +126,8 @@ mentis-agent/
 │       └── server.py                 # ACP stdio server for editor integration
 ├── assets/                           # Project icon and branding assets
 │   └── mentis-agent.svg
+├── tests/                                 # Test suite
+│   └── test_import.py                    # Package import smoke test
 ├── skills/                           # Agent skill definitions
 │   ├── code_review/SKILL.md
 │   └── debugging/SKILL.md
