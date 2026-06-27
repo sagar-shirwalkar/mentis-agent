@@ -12,7 +12,7 @@ license = "AGPL-3.0-only"
 authors = [
     {name = "Mentis AI", email = "hello@mentis.ai"},
 ]
-urls = {Homepage = "https://github.com/mentis-ai/mentis-agent", Source = "https://github.com/mentis-ai/mentis-agent"}
+urls = {Homepage = "https://github.com/sagar-shirwalkar/mentis-agent", Source = "https://github.com/mentis-ai/mentis-agent"}
 
 dependencies = [
     "agent-client-protocol>=0.10,<1",
