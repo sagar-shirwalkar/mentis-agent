@@ -1,7 +1,7 @@
 # Meredith
 
 [![Python](https://img.shields.io/badge/Python-3.13-fbad2b?style=for-the-badge&label=Python&labelColor=gray&logo=python&logoColor=blue)](https://python.org)
-[![GitHub tag check runs](https://img.shields.io/github/check-runs/sagar-shirwalkar/meredith/v0.2.6?style=for-the-badge)](https://github.com/sagar-shirwalkar/meredith/actions)
+[![GitHub tag check runs](https://img.shields.io/github/check-runs/sagar-shirwalkar/meredith/v0.2.7?style=for-the-badge)](https://github.com/sagar-shirwalkar/meredith/actions)
 [![AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue?style=for-the-badge)](LICENSE)
 
 <p align="center">
@@ -129,7 +129,12 @@ meredith/
 │   └── acp/                          # Agent Client Protocol server
 │       └── server.py                 # ACP stdio server for editor integration
 ├── assets/                           # Project icon and branding assets
-│   └── meredith.svg
+│   ├── meredith.svg                  # Primary logo (isometric M, dark bg)
+│   ├── meredith-favicon.svg          # Favicon crop (no wordmark/decoration)
+│   ├── meredith-light.svg            # Light background variant
+│   ├── meredith-mono.svg             # Monochrome / print variant
+│   ├── meredith-small.svg            # Tight crop for app icon (512×512)
+│   └── logo-variants.md              # Variant specs and generation guide
 ├── tests/                                 # Test suite (224 tests covering >80% of core modules)
 │   ├── __init__.py
 │   ├── conftest.py                       # Shared fixtures (config, types, streaming)
@@ -231,7 +236,7 @@ args:
   - coding_agent.acp.server
   - --profile
   - large_model
-version: 0.2.6
+version: 0.2.7
 ```
 
 3. **Add an icon** — use the icon at [`assets/meredith.svg`](assets/meredith.svg).
@@ -264,8 +269,8 @@ The project uses GitHub Actions for continuous integration and automated publish
 
 ```bash
 # 1. Tag the release
-git tag v0.2.6
-git push origin v0.2.6
+git tag v0.2.7
+git push origin v0.2.7
 
 # 2. Create a GitHub Release from the tag
 #    The CI pipeline will automatically build and publish to PyPI.

@@ -91,7 +91,7 @@ class CodingAgentServer(Agent):
             agent_info=Implementation(
                 name="meredith",
                 title="meredith",
-                version="0.2.6",
+                version="0.2.7",
             ),
         )
 
@@ -252,7 +252,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Coding Agent (ACP Server)")
     parser.add_argument(
-        "--profile", "-p",
+        "--profile",
+        "-p",
         default="large_model",
         choices=["large_model", "local_model"],
         help="Configuration profile",

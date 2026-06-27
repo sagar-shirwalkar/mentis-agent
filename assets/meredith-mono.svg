@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-220 -220 440 440">
+  <defs>
+
+
+
+
+
+
+
+    <filter id="glowBig"><feGaussianBlur stdDeviation="15"/></filter>
+    <filter id="glowSmall"><feGaussianBlur stdDeviation="4" result="b"/><feComposite in="SourceGraphic" in2="b" operator="over"/></filter>
+  </defs>
+
+  <rect x="-220" y="-220" width="440" height="440" fill="#333333"/>
+  <ellipse cx="0" cy="-20" rx="140" ry="90" fill="#444444" opacity="0.04" filter="url(#glowBig)"/>
+
+  <!-- ISOMETRIC M — 4 prism groups forming the letterform -->
+  <!-- Isometric: X→(+0.866,+0.5), Y→(-0.866,+0.5), Z→(0,-1) -->
+
+  <!-- ═══ GROUP 1: LEFT OUTER LEG ═══ -->
+  <polygon points="-140,-70 -80,-100 -80,60 -140,90" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="-140,-70 -80,-100 -20,-70 -80,-40" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="-80,-100 -80,60 -20,90 -20,-40" fill="#444444" stroke="#666666" stroke-width="0.5" opacity="0.7"/>
+
+  <!-- ═══ GROUP 2: LEFT INNER LEG (slopes toward center) ═══ -->
+  <polygon points="-80,-40 -20,-70 -20,90 -80,60" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="-80,-40 -20,-70 40,-40 -20,-10" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="-20,-70 -20,90 40,120 40,-10" fill="#444444" stroke="#666666" stroke-width="0.5" opacity="0.6"/>
+
+  <!-- ═══ GROUP 3: RIGHT INNER LEG (slopes down-right) ═══ -->
+  <polygon points="-20,-10 40,-40 40,120 -20,90" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="-20,-10 40,-40 100,-10 40,20" fill="#333333" stroke="#666666" stroke-width="0.5"/>
+  <polygon points="40,-40 40,120 100,150 100,20" fill="#444444" stroke="#666666" stroke-width="0.5" opacity="0.6"/>
+
+  <!-- ═══ GROUP 4: RIGHT OUTER LEG ═══ -->
+  <polygon points="40,20 100,-10 100,150 40,120" fill="#333333" stroke="#666666" stroke-width="0.5" opacity="0.9"/>
+  <polygon points="100,-10 160,-40 160,120 100,150" fill="#333333" stroke="#666666" stroke-width="0.5" opacity="0.8"/>
+  <polygon points="100,-10 160,-40 100,-70 40,-40" fill="#333333" stroke="#666666" stroke-width="0.5" opacity="0.8"/>
+  <polygon points="160,-40 160,120 100,150 100,-10" fill="#444444" stroke="#666666" stroke-width="0.5" opacity="0.5"/>
+
+  <!-- Radiator core glow at center crossing -->
+  <ellipse cx="10" cy="15" rx="60" ry="35" fill="#444444" opacity="0.12" filter="url(#glowSmall)"/>
+  <ellipse cx="10" cy="15" rx="30" ry="18" fill="#444444" opacity="0.15" filter="url(#glowSmall)"/>
+
+  <!-- Heat fin lines (radiator core) -->
+  <g stroke="#555555" stroke-width="0.5" opacity="0.2">
+    <line x1="-50" y1="5" x2="-50" y2="30"/>
+    <line x1="-38" y1="0" x2="-38" y2="25"/>
+    <line x1="-26" y1="-5" x2="-26" y2="20"/>
+    <line x1="-14" y1="-10" x2="-14" y2="15"/>
+    <line x1="-2" y1="-15" x2="-2" y2="10"/>
+    <line x1="10" y1="-20" x2="10" y2="5"/>
+    <line x1="22" y1="-15" x2="22" y2="10"/>
+    <line x1="34" y1="-10" x2="34" y2="15"/>
+    <line x1="46" y1="-5" x2="46" y2="20"/>
+  </g>
+
+  <!-- Intake streamlines (cool air entering left side) -->
+  <g stroke="#666666" stroke-width="0.8" fill="none" opacity="0.25">
+    <path d="M-170,-55 Q-150,-60 -120,-55"/>
+    <path d="M-165,-40 Q-145,-45 -115,-40"/>
+    <path d="M-160,-25 Q-140,-30 -110,-25"/>
+  </g>
+
+  <!-- Heat diamonds (energy transfer in center) -->
+  <g fill="#444444" opacity="0.4">
+    <polygon points="-30,-55 -24,-50 -30,-45 -36,-50"/>
+    <polygon points="-18,-60 -12,-55 -18,-50 -24,-55"/>
+    <polygon points="-6,-65 0,-60 -6,-55 -12,-60"/>
+    <polygon points="6,-60 12,-55 6,-50 0,-55"/>
+    <polygon points="18,-55 24,-50 18,-45 12,-50"/>
+    <polygon points="30,-50 36,-45 30,-40 24,-45"/>
+  </g>
+
+  <!-- Thrust trail (hot gas exiting right side, accelerating) -->
+  <g stroke="#666666" stroke-width="0.8" fill="none" opacity="0.3">
+    <path d="M130,0 Q155,5 185,-5"/>
+    <path d="M130,20 Q160,25 190,12"/>
+    <path d="M125,40 Q158,48 185,30"/>
+    <path d="M120,60 Q155,70 180,50"/>
+  </g>
+  <g fill="#444444" opacity="0.25">
+    <circle cx="148" cy="8" r="1.5"/>
+    <circle cx="165" cy="0" r="1"/>
+    <circle cx="155" cy="28" r="1.2"/>
+    <circle cx="178" cy="18" r="0.8"/>
+    <circle cx="150" cy="48" r="1"/>
+  </g>
+
+  <!-- Animated flow particles -->
+  <circle cx="-110" cy="-30" r="1.5" fill="#666666" opacity="0.5">
+    <animate attributeName="cx" values="-110;-50" dur="2.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.5;0" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="50" cy="30" r="2" fill="#666666" opacity="0.5">
+    <animate attributeName="cx" values="50;140" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.5;0" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="70" cy="50" r="1.5" fill="#444444" opacity="0.4">
+    <animate attributeName="cx" values="60;150" dur="2.8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.4;0" dur="2.8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Wordmark -->
+  <text x="0" y="185" text-anchor="middle" fill="#444444" font-size="16" font-family="monospace" font-weight="bold" opacity="0.3" letter-spacing="8">M E R E D I T H</text>
+</svg>
