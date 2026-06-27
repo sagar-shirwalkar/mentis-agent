@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from typing import Any
 
 from coding_agent.config import RecoveryConfig
@@ -303,6 +304,3 @@ class LoopDetector:
         # If more than half of pairs are similar
         return total_pairs > 0 and similar_count / total_pairs > 0.5
 
-
-# Need re for _normalise_error
-import re

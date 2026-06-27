@@ -38,11 +38,15 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────
 
 
-@dataclass_if_needed
 class _SearchHit:
-    title: str
-    url: str
-    snippet: str
+    """Simple container for a search result."""
+
+    __slots__ = ("title", "url", "snippet")
+
+    def __init__(self, title: str, url: str, snippet: str) -> None:
+        self.title = title
+        self.url = url
+        self.snippet = snippet
 
 
 def _normalise_brave_results(data: dict) -> list[_SearchHit]:
@@ -416,17 +420,3 @@ class WebTools(ToolExecutor):
     async def close(self) -> None:
         await self._http.aclose()
 
-
-# ──────────────────────────────────────────────────────────────
-# Fix: avoid dataclass import issue — use simple class instead
-# ──────────────────────────────────────────────────────────────
-
-class _SearchHit:
-    """Simple container for a search result (avoids dataclass overhead)."""
-
-    __slots__ = ("title", "url", "snippet")
-
-    def __init__(self, title: str, url: str, snippet: str) -> None:
-        self.title = title
-        self.url = url
-        self.snippet = snippet

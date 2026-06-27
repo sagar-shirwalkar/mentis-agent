@@ -80,8 +80,10 @@ def _ollama_tool_schemas(tools: list[ToolSchema]) -> list[dict[str, Any]]:
         props: dict[str, Any] = {}
         required: list[str] = []
         for p in t.parameters:
+            _type_map = {"str": "string", "int": "integer", "float": "number",
+                          "bool": "boolean", "list": "array", "dict": "object"}
             props[p.name] = {
-                "type": "string" if p.type == "str" else p.type,
+                "type": _type_map.get(p.type, p.type),
                 "description": p.description,
             }
             if p.enum:

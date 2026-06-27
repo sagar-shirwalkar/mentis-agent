@@ -225,7 +225,7 @@ class ToolRouter:
         path = call.arguments.get("path", "")
         if path:
             ext = path.rsplit(".", 1)[-1] if "." in path else ""
-            if ext in ("py", "ts", "tsx", "js", "rs", "go", "java"):
+            if ext in ("py", "ts", "tsx", "rs", "go"):
                 logger.info("Post-edit hint: consider running get_diagnostics on %s", path)
 
     # ── Auto-enqueue rules ────────────────────────────────────

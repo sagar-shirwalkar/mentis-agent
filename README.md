@@ -1,6 +1,6 @@
 # mentis-agent
 
-Mentis is an AI coding agent with RAG, MCP integration, and smart context management.
+Mentis is an AI coding agent with RAG, ACP (Agent Client Protocol) integration, and smart context management.
 Supports both large remote models (Claude, GPT-4) and local models (Ollama / MLX on Apple Silicon and Linux+CUDA).
 
 ## Features
@@ -8,8 +8,8 @@ Supports both large remote models (Claude, GPT-4) and local models (Ollama / MLX
 - **ReAct Loop**: Think -> Act -> Observe cycle with strategic planning
 - **RAG**: AST-aware code chunking and BM25 retrieval for efficient
   codebase understanding
-- **MCP**: Run as a server for Zed/Opencode, or connect to external
-  MCP servers
+- **ACP**: Run as an Agent Client Protocol server for ACP-aware editors
+  (Zed, JetBrains, Neovim, Emacs, etc.)
 - **Smart Context**: Hierarchical context window with token budgets
   and auto-compression
 - **Loop Recovery**: Detects and escapes repetitive action patterns
@@ -20,7 +20,7 @@ Supports both large remote models (Claude, GPT-4) and local models (Ollama / MLX
 - **Dual Profile**: Optimised configs for both large API models and
   local 7-13B models
 
-## Poject Structure
+## Project Structure
 
 ```
 mentis-agent/
@@ -70,10 +70,9 @@ mentis-agent/
 │       ├── memory/
 │       │   ├── __init__.py
 │       │   └── store.py           # SQLite cross-session memory (conventions, errors, patterns)
-│       └── mcp/
+│       └── acp/
 │           ├── __init__.py
-│           ├── server.py          # Run agent as MCP server (Zed/Opencode integration)
-│           └── client.py          # Connect to external MCP servers for additional tools
+│           └── server.py          # Run agent as ACP server (Zed, JetBrains, Neovim, Emacs integration)
 ├── skills/
 │   ├── code-review/
 │   │   └── SKILL.md
@@ -89,12 +88,6 @@ mentis-agent/
 
 ```bash
 uv sync
-```
-
-For RAG with AST-aware chunking:
-
-```bash
-uv sync --extra rag
 ```
 
 For MLX support on Apple Silicon:
@@ -161,10 +154,10 @@ Verbose logging:
 uv run coding-agent -v "Explain the authentication flow"
 ```
 
-Run as an MCP server (for Zed/Opencode):
+Run as an ACP server (for Zed, JetBrains, Neovim, Emacs):
 
 ```bash
-uv run python -m coding_agent.mcp.server --profile local_model
+uv run python -m coding_agent.acp.server --profile local_model
 ```
 
 ## Configuration Profiles
