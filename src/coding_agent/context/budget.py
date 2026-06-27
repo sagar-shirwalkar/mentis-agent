@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-
 from typing import Any
 
 from coding_agent.config import StepAllocConfig

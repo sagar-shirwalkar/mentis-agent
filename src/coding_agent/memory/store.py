@@ -18,11 +18,10 @@ import re
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 
 from coding_agent.config import AppConfig
 from coding_agent.llm.base import count_tokens
-from typing import Any
-
 from coding_agent.types import AgentState
 
 logger = logging.getLogger(__name__)

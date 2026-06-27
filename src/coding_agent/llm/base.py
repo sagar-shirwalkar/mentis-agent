@@ -184,6 +184,7 @@ class LLMClient(abc.ABC):
 
     # ── Lifecycle ─────────────────────────────────────────────
 
+    @abc.abstractmethod
     async def close(self) -> None:
         """Release any resources held by the client."""
         ...

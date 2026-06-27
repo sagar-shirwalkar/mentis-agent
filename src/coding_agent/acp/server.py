@@ -47,8 +47,8 @@ from acp.schema import (
     ResourceContentBlock,
     ResumeSessionResponse,
     SetSessionConfigOptionResponse,
-    SetSessionModeResponse,
     SetSessionModelResponse,
+    SetSessionModeResponse,
     SseMcpServer,
     TextContentBlock,
 )
@@ -162,10 +162,14 @@ class CodingAgentServer(Agent):
     ) -> ListSessionsResponse:
         return ListSessionsResponse(sessions=[])
 
-    async def set_session_mode(self, mode_id: str, session_id: str, **kwargs: Any) -> SetSessionModeResponse | None:
+    async def set_session_mode(
+        self, mode_id: str, session_id: str, **kwargs: Any
+    ) -> SetSessionModeResponse | None:
         return None
 
-    async def set_session_model(self, model_id: str, session_id: str, **kwargs: Any) -> SetSessionModelResponse | None:
+    async def set_session_model(
+        self, model_id: str, session_id: str, **kwargs: Any
+    ) -> SetSessionModelResponse | None:
         return None
 
     async def set_config_option(

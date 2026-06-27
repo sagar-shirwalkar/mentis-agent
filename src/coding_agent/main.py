@@ -17,10 +17,9 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-
-from coding_agent.config import AppConfig, load_config
 from typing import Any
 
+from coding_agent.config import AppConfig, load_config
 from coding_agent.llm.base import LLMClient
 from coding_agent.llm.local import LocalLLMClient
 from coding_agent.llm.remote import RemoteLLMClient

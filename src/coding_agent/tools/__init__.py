@@ -7,8 +7,8 @@ implementations for filesystem, search, web, and git operations.
 """
 
 from coding_agent.tools.base import ToolExecutor, ToolRegistry
-from coding_agent.types import ToolSchema
 from coding_agent.tools.router import ToolRouter
+from coding_agent.types import ToolSchema
 
 __all__ = [
     "ToolExecutor",
