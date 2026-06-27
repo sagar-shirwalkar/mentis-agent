@@ -528,7 +528,7 @@ wheels = [
 ]
 
 [[package]]
-name = "meredith"
+name = "meredith-agent"
 version = "0.2.5"
 source = { editable = "." }
 dependencies = [

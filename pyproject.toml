@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "meredith"
+name = "meredith-agent"
 version = "0.2.5"
 description = "A modern AI coding agent with RAG, ACP, and smart context management"
 readme = "README.md"
