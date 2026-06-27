@@ -10,9 +10,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "AGPL-3.0-only"
 authors = [
-    {name = "Mentis AI", email = "hello@mentis.ai"},
+    {name = "Sagar Shirwalkar", email = "shirwalkarsagar0@gmail.com"},
 ]
-urls = {Homepage = "https://github.com/sagar-shirwalkar/mentis-agent", Source = "https://github.com/mentis-ai/mentis-agent"}
+urls = {Homepage = "https://github.com/sagar-shirwalkar/mentis-agent", Source = "https://github.com/sagar-shirwalkar/mentis-agent"}
 
 dependencies = [
     "agent-client-protocol>=0.10,<1",
