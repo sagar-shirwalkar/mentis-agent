@@ -92,14 +92,17 @@ class TokenBudget:
         if estimated_tokens > max_for_step:
             logger.debug(
                 "Budget reject: est=%d > max_step=%d (remaining=%d)",
-                estimated_tokens, max_for_step, rem,
+                estimated_tokens,
+                max_for_step,
+                rem,
             )
             return False
 
         if (rem - estimated_tokens) < headroom:
             logger.debug(
                 "Budget reject: would leave only %d < headroom %d",
-                rem - estimated_tokens, headroom,
+                rem - estimated_tokens,
+                headroom,
             )
             return False
 

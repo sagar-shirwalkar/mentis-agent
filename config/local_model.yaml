@@ -13,6 +13,15 @@ llm:
   streaming: true
   # Fallback: if Ollama is down, try MLX subprocess
   mlx_fallback: false
+  # TurboQuant KV cache compression for Apple Silicon (M-series)
+  # Enables running 27B-32B models on 24GB unified memory.
+  # See .agents/skills/agentic-improvements/references/TURBOQUANT.md
+  turboquant:
+    enabled: false
+    kv_bits: 3              # 3-bit KV cache (K8/V3 mixed precision)
+    weight_bits: 4          # 4-bit weights
+    sink_tokens: 128        # First N tokens kept at full precision
+    layer_adaptive: true    # Apply different bit widths per layer
 
 agent:
   planner_type: "flat" # Local models struggle with tree-of-thought
@@ -21,7 +30,7 @@ agent:
   max_steps: 30 # Shorter horizon to avoid context overflow
 
 context:
-  max_tokens: 32000 # Typical 7-13B context window
+  max_tokens: 32000 # 7-13B default; 96000 with TurboQuant enabled for 32B
   zones:
     immutable: { priority: 0, max_tokens: 2000 }
     task: { priority: 1, max_tokens: 1500 }

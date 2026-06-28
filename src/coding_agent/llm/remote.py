@@ -26,6 +26,8 @@ from coding_agent.llm.base import (
     StreamChunk,
     StreamEvent,
     UsageStats,
+    message_to_openai_dict,
+    openai_sse_chunks,
 )
 from coding_agent.types import Message, Role, ToolCall, ToolSchema
 
@@ -96,11 +98,12 @@ class RemoteLLMClient(LLMClient):
         tool_calls = self._parse_tool_calls_response(msg.get("tool_calls", []))
 
         usage_raw = resp_data.get("usage", {})
-        _usage = UsageStats(
+        usage = UsageStats(
             prompt_tokens=usage_raw.get("prompt_tokens", 0),
             completion_tokens=usage_raw.get("completion_tokens", 0),
             total_tokens=usage_raw.get("total_tokens", 0),
         )
+        logger.debug("Remote chat usage: %s", usage)
 
         return Message(
             role=Role.ASSISTANT,
@@ -127,37 +130,14 @@ class RemoteLLMClient(LLMClient):
         temp, max_tok = self._resolve_params(temperature, max_tokens)
         payload = self._build_payload(messages, tools, temp, max_tok, stream=True)
 
-        # Accumulate tool call deltas
         tool_call_accum: dict[str, dict[str, Any]] = {}
 
-        async for line in self._stream_lines("/chat/completions", payload):
-            if not line.startswith("data: "):
-                continue
-            data_str = line[6:].strip()
-            if data_str == "[DONE]":
-                # Yield any completed tool calls
-                if tool_call_accum:
-                    for call_id, td in tool_call_accum.items():
-                        yield StreamChunk(
-                            event=StreamEvent.TOOL_CALL_END,
-                            tool_call_id=call_id,
-                            tool_name=td.get("name", ""),
-                        )
-                yield StreamChunk(event=StreamEvent.DONE)
-                return
-
-            try:
-                chunk = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
-
+        async for chunk in openai_sse_chunks(self._http, "/chat/completions", payload):
             delta = chunk.get("choices", [{}])[0].get("delta", {})
 
-            # Text content
             if delta.get("content"):
                 yield StreamChunk(event=StreamEvent.TEXT, content=delta["content"])
 
-            # Tool call deltas
             for tc_delta in delta.get("tool_calls", []):
                 idx = tc_delta.get("index", 0)
                 call_id = tc_delta.get("id", f"tc_{idx}")
@@ -179,7 +159,6 @@ class RemoteLLMClient(LLMClient):
                         tool_arguments_delta=fn_delta["arguments"],
                     )
 
-            # Usage (only in last chunk for some providers)
             usage_raw = chunk.get("usage")
             if usage_raw:
                 yield StreamChunk(
@@ -191,6 +170,14 @@ class RemoteLLMClient(LLMClient):
                     ),
                 )
 
+        for call_id, td in tool_call_accum.items():
+            yield StreamChunk(
+                event=StreamEvent.TOOL_CALL_END,
+                tool_call_id=call_id,
+                tool_name=td.get("name", ""),
+            )
+        yield StreamChunk(event=StreamEvent.DONE)
+
     # ── HTTP helpers ──────────────────────────────────────────
 
     async def _request_with_retries(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -200,10 +187,13 @@ class RemoteLLMClient(LLMClient):
             try:
                 resp = await self._http.post(path, json=payload)
                 if resp.status_code in _RETRYABLE_STATUS:
-                    wait = _BACKOFF_BASE ** attempt
+                    wait = _BACKOFF_BASE**attempt
                     logger.warning(
                         "LLM API %d, retry %d/%d in %.1fs",
-                        resp.status_code, attempt + 1, _MAX_RETRIES, wait,
+                        resp.status_code,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        wait,
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -213,25 +203,28 @@ class RemoteLLMClient(LLMClient):
                 if exc.response.status_code not in _RETRYABLE_STATUS:
                     raise
                 last_exc = exc
-                wait = _BACKOFF_BASE ** attempt
-                logger.warning("LLM API error %d, retry %d/%d in %.1fs",
-                               exc.response.status_code, attempt + 1, _MAX_RETRIES, wait)
+                wait = _BACKOFF_BASE**attempt
+                logger.warning(
+                    "LLM API error %d, retry %d/%d in %.1fs",
+                    exc.response.status_code,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    wait,
+                )
                 await asyncio.sleep(wait)
             except (httpx.ConnectError, httpx.ReadTimeout) as exc:
                 last_exc = exc
-                wait = _BACKOFF_BASE ** attempt
-                logger.warning("LLM connection error, retry %d/%d in %.1fs: %s",
-                               attempt + 1, _MAX_RETRIES, wait, exc)
+                wait = _BACKOFF_BASE**attempt
+                logger.warning(
+                    "LLM connection error, retry %d/%d in %.1fs: %s",
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    wait,
+                    exc,
+                )
                 await asyncio.sleep(wait)
 
         raise RuntimeError(f"LLM API failed after {_MAX_RETRIES} retries") from last_exc
-
-    async def _stream_lines(self, path: str, payload: dict[str, Any]) -> AsyncIterator[str]:
-        """POST with streaming and yield raw SSE lines."""
-        async with self._http.stream("POST", path, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                yield line
 
     # ── Payload construction ──────────────────────────────────
 
@@ -246,7 +239,7 @@ class RemoteLLMClient(LLMClient):
         """Build the JSON payload for /chat/completions."""
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [self._message_to_dict(m) for m in messages],
+            "messages": [message_to_openai_dict(m) for m in messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": stream,
@@ -254,28 +247,6 @@ class RemoteLLMClient(LLMClient):
         if tools:
             payload["tools"] = [t.to_openai_dict() for t in tools]
         return payload
-
-    @staticmethod
-    def _message_to_dict(msg: Message) -> dict[str, Any]:
-        """Convert a Message to the OpenAI wire format."""
-        d: dict[str, Any] = {"role": msg.role.value, "content": msg.content or ""}
-        if msg.tool_calls:
-            d["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.name,
-                        "arguments": json.dumps(tc.arguments),
-                    },
-                }
-                for tc in msg.tool_calls
-            ]
-        if msg.tool_call_id:
-            d["tool_call_id"] = msg.tool_call_id
-        if msg.name:
-            d["name"] = msg.name
-        return d
 
     @staticmethod
     def _parse_tool_calls_response(raw: list[dict[str, Any]]) -> list[ToolCall] | None:

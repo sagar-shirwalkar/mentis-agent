@@ -76,6 +76,10 @@ These words surface the right strategy at the right moment:
 | **Blueprint** | Blueprint | Meta-planning, architecture design, capability roadmap |
 | **Distill** | Adapt | Graceful degradation, compression, simplification for resource constraints |
 | **Crosswalk** | Crosswalk | Memory management, cross-session continuity, checkpoint recovery |
+| **Compact** | Distill | Staged context compaction — progressive reduction from cheap masking through LLM summarization |
+| **Fuse** | Crosswalk | Three-tier hybrid retrieval fusion (BM25 + dense + graph) with RRF combining |
+| **Zoom** | Blueprint | Coarse-to-fine hierarchical search — graph zoom for structural code queries |
+| **Bridge** | Crosswalk | CROSSWALK.md session bridging — structured relay between sessions |
 
 ## Skill Phases
 
@@ -172,7 +176,15 @@ Before planning any change, map the territory:
    - When context budget is critical → emergency compression of semantic zone
    - When RAG returns low confidence → fall back to grep-only search
 
-**Deliverable:** updated config profiles and graceful fallback chains.
+5. **Advanced: Adaptive Context Compaction (ACC)** — 5-tier staged compaction:
+   - **Tier 1 (Budget Reduction):** cap tool outputs per-zone, every turn
+   - **Tier 2 (Observation Masking):** replace older tool results with compact reference pointers
+   - **Tier 3 (Fast Pruning):** drop low-value (<200 char) tool outputs within retention window
+   - **Tier 4 (Aggressive Compression):** shrink retention window, trigger cache-aware dual-path
+   - **Tier 5 (Full LLM Summarization):** serialized non-lossy, LLM summarization, post-compaction rehydration
+6. See `references/CLAUDE_CODE_ARCH.md` for reference implementation details
+
+**Deliverable:** updated config profiles, graceful fallback chains, and staged compaction pipeline.
 
 ### Phase 5: Crosswalk (Memory & Continuity)
 
@@ -194,7 +206,23 @@ Before planning any change, map the territory:
    - Merges consecutive checkpoints into compressed summaries
    - Rebuilds semantic index from episodic summaries
 
-**Deliverable:** MEMORY.md, checkpoint.json schema, and compaction script.
+4. **Advanced: CROSSWALK.md session bridging** (if CROSSWALK.md exists):
+   - Read at session start → update Active Work section
+   - Write at session boundaries (phase complete, decision made)
+   - Write at session end → final state + next action directive
+   - Archive older entries to `.agent/handoff/archive/` to keep file under ~2000 tokens
+   - Atomic writes (temp file + rename) to prevent partial-write corruption
+5. **Advanced: Three-Tier Hybrid RAG fusion:**
+   - Tier 1 (BM25) — fast keyword, always on, no GPU
+   - Tier 2 (Dense) — ONNX MiniLM + FAISS + BM25 RRF fusion
+   - Tier 3 (Structural Graph) — AST-derived knowledge graph, BFS from seed hits
+   - Adaptive-k: dynamic top-k based on similarity distribution
+   - Cascade: Tier 1 → confidence check → Tier 2 → confidence check → Tier 3
+6. See `references/CLAUDE_CODE_ARCH.md` for memory architecture details
+7. See `references/GRAPH_RAG.md` for AST graph patterns
+8. See `references/LIGHTWEIGHT_RAG.md` for lightweight RAG stack
+
+**Deliverable:** MEMORY.md, CROSSWALK.md, checkpoint.json schema, compaction script, and three-tier RAG pipeline.
 
 ### Phase 6: Reckon (Verification & Iteration)
 
@@ -217,8 +245,12 @@ Before planning any change, map the territory:
 
 These files ship with the skill and provide deeper context:
 
-- [INNOVATIONS.md](references/INNOVATIONS.md) — Survey of 2025-2026 agent innovations (Orchard, COMPASS, TodoEvolve, AdaPlan-H, ReAcTree, MPO, AdaCache, TurboQuant)
-- [STRATEGIES.md](references/STRATEGIES.md) — Detailed patterns for tool selection, planning, and context management
+- [INNOVATIONS.md](references/INNOVATIONS.md) — Survey of 2025-2026 agent innovations (Orchard, COMPASS, TodoEvolve, AdaPlan-H, ReAcTree, MPO, AdaCache, TurboQuant, ZoomRAG, Claude Code ACC, PyCodeKG, VelociRAG)
+- [STRATEGIES.md](references/STRATEGIES.md) — Detailed patterns for tool selection, planning, context management, ACC pipeline, three-tier RAG, and CROSSWALK.md
+- [CLAUDE_CODE_ARCH.md](references/CLAUDE_CODE_ARCH.md) — Reference: Claude Code's 5-tier compaction pipeline and 7-layer memory architecture
+- [LIGHTWEIGHT_RAG.md](references/LIGHTWEIGHT_RAG.md) — Reference: four lightweight RAG approaches (VelociRAG, SwiftRAG, MiniRAG, Adaptive-k)
+- [GRAPH_RAG.md](references/GRAPH_RAG.md) — Reference: AST-derived code graphs (PyCodeKG, ZoomRAG, GraphRAG-MCP, CodeGraph)
+- [TURBOQUANT.md](references/TURBOQUANT.md) — Reference: MLX TurboQuant ecosystem for Apple Silicon KV cache + weight compression
 
 Supporting directories:
 

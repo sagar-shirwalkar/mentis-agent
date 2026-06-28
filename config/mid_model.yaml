@@ -1,0 +1,44 @@
+# ──────────────────────────────────────────────────────────────
+# Mid-model overrides (GPT-4o-mini, Claude Haiku, Llama-3-70B, etc.)
+# Merged on top of base.yaml.
+# ──────────────────────────────────────────────────────────────
+
+llm:
+  provider: "remote"
+  model: "gpt-4o-mini"
+  api_base: "https://api.openai.com/v1"
+  key_var: "LLM_API_KEY"
+  temperature: 0.2
+  max_response_tokens: 3072
+  streaming: true
+
+agent:
+  planner_type: "flat"
+  planner_model: null
+  verifier_concurrent: false
+  max_steps: 50
+
+context:
+  max_tokens: 64000
+  zones:
+    immutable: { priority: 0, max_tokens: 3000 }
+    task: { priority: 1, max_tokens: 1500 }
+    working: { priority: 2, max_tokens: 6000 }
+    episodic: { priority: 3, max_tokens: 3000 }
+    semantic: { priority: 4, max_tokens: 1500 }
+    scratch: { priority: 5, max_tokens: 800 }
+
+tools:
+  router:
+    strategy: "hybrid"
+    learned_preferences: true
+  fs:
+    max_read_lines: 80
+  search:
+    max_results: 20
+
+rag:
+  retrieval:
+    top_k: 8
+  chunk:
+    max_lines: 50

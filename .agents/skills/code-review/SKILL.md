@@ -83,3 +83,25 @@ The verdict is unambiguous. "Request changes" means at least one gate exists. "C
 - **Rubber stamp** — Approving without reading, because the change looks small or the author is trusted. Every change gets the full triage pass.
 - **Bike shedding** — Debating trivial style or naming while real gates go unmentioned. Curate your attention toward what matters.
 - **Ghosting** — Requesting changes then disappearing. If you gate, stay available to re-review within the same day.
+
+## Anti-patterns (common recurring issues)
+
+Gate the following during review — each has broken similar codebases repeatedly:
+
+- **Bare `except: pass`** — Silently swallows errors, making the system blind to failures.
+  *Fix*: log the exception (`logger.warning`) or re-raise. Never suppress an error you cannot explain.
+
+- **`...` in abstract method bodies** — `...` is an expression statement with no side effects. When the abstract method is called, it silently does nothing instead of signalling a clear error.
+  *Fix*: use `raise NotImplementedError("Subclasses must implement <method>")` in every `@abstractmethod`.
+
+- **Unused assigned variables** — Variables computed but never consumed waste cycles and confuse readers. Code that computes a result and discards it is likely a bug.
+  *Fix*: remove the assignment, or log/deliver the value if it was meant to be used.
+
+- **HTML regex extraction** — Stripping HTML with regex is inherently fragile. Closing tag whitespace (`</script >`, `</script\t\n>`) and nested tags with `>` in attributes break naive patterns.
+  *Fix*: sanitise closing-tag whitespace before extraction (`</tag\s*>`), or use a proper HTML parser.
+
+- **Abstract method returning `None` instead of the declared type** — `@abstractmethod` methods whose body is `pass` or `...` return `None` regardless of their declared return type, silently violating the contract.
+  *Fix*: always `raise NotImplementedError` in abstract method bodies to guarantee the contract is enforced.
+
+- **Silent subprocess failure in diagnostics** — `try/except (TimeoutError, FileNotFoundError): pass` around subprocess calls means the agent never learns when a diagnostic tool is missing or timed out.
+  *Fix*: always log at `warning` level when a diagnostic tool is unavailable.

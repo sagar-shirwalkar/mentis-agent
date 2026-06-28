@@ -7,10 +7,12 @@ overflow and minimise waste.
 """
 
 from coding_agent.context.budget import TokenBudget
+from coding_agent.context.compactor import ContextCompactor
 from coding_agent.context.compressor import OutputCompressor
 from coding_agent.context.manager import ContextManager
 
 __all__ = [
+    "ContextCompactor",
     "ContextManager",
     "OutputCompressor",
     "TokenBudget",

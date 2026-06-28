@@ -177,8 +177,7 @@ class OutputCompressor:
         """Extract only lines containing 'error' or 'warning'."""
         lines = output.split("\n")
         error_lines = [
-            line for line in lines
-            if "error" in line.lower() or "warning" in line.lower()
+            line for line in lines if "error" in line.lower() or "warning" in line.lower()
         ]
         if not error_lines:
             # Fallback: last 20 lines
@@ -227,7 +226,7 @@ class OutputCompressor:
             # Skip inline comments (but keep TODO/FIXME/HACK)
             if "#" in line and not stripped.startswith("#"):
                 code_part = line.split("#")[0].rstrip()
-                comment_part = line[len(code_part):]
+                comment_part = line[len(code_part) :]
                 if any(tag in comment_part.upper() for tag in ("TODO", "FIXME", "HACK", "XXX")):
                     compressed.append(line)
                 elif code_part:
@@ -302,7 +301,8 @@ class OutputCompressor:
         lines = output.split("\n")
         # Keep only non-indented lines (top-level entries)
         top_level = [
-            line for line in lines
+            line
+            for line in lines
             if line and not line.startswith(" ") and not line.startswith("\t")
         ]
         return "\n".join(top_level[:50])
@@ -316,8 +316,4 @@ class OutputCompressor:
             return text
         head_len = max_length // 2 - 20
         tail_len = max_length - head_len - 30
-        return (
-            text[:head_len]
-            + "\n... [heavily truncated] ...\n"
-            + text[-tail_len:]
-        )
+        return text[:head_len] + "\n... [heavily truncated] ...\n" + text[-tail_len:]

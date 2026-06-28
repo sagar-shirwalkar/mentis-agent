@@ -15,12 +15,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
 
 from coding_agent.config import AppConfig
-from coding_agent.llm.base import count_tokens
 from coding_agent.tools.base import (
     SCHEMA_WEB_FETCH,
     SCHEMA_WEB_SEARCH,
@@ -51,11 +51,13 @@ def _normalise_brave_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Brave Search API response."""
     hits: list[_SearchHit] = []
     for item in data.get("web", {}).get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("description", ""),
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("description", ""),
+            )
+        )
     return hits
 
 
@@ -63,11 +65,13 @@ def _normalise_tavily_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Tavily API response."""
     hits: list[_SearchHit] = []
     for item in data.get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("content", ""),
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("content", ""),
+            )
+        )
     return hits
 
 
@@ -75,11 +79,13 @@ def _normalise_exa_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Exa API response."""
     hits: list[_SearchHit] = []
     for item in data.get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("text", "")[:300],
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("text", "")[:300],
+            )
+        )
     return hits
 
 
@@ -99,15 +105,15 @@ def _format_hits(hits: list[_SearchHit], max_results: int) -> str:
 # ──────────────────────────────────────────────────────────────
 
 
-# Script/style blocks: tolerate whitespace before > in closing tags
-_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script\s*>", re.DOTALL | re.IGNORECASE)
-_STYLE_RE = re.compile(r"<style[^>]*>.*?</style\s*>", re.DOTALL | re.IGNORECASE)
+# Sanitization prepass: normalize whitespace inside tags so closing tag
+# patterns like </script >, </script\t\n> become </script>
+_TAG_WS_RE = re.compile(r"(</\w+)\s+(>)")
 
-# Blocks unlikely to carry readable text
-_SVG_RE = re.compile(r"<svg[^>]*>.*?</svg>", re.DOTALL | re.IGNORECASE)
-_MATH_RE = re.compile(r"<math[^>]*>.*?</math>", re.DOTALL | re.IGNORECASE)
-_IFRAME_RE = re.compile(r"<iframe[^>]*>.*?</iframe>", re.DOTALL | re.IGNORECASE)
-_EMBED_RE = re.compile(r"<(?:embed|object)[^>]*>.*?</(?:embed|object)>", re.DOTALL | re.IGNORECASE)
+# Tags whose content carries no readable text (handles whitespace in closing tags)
+_BLOCK_TAG_RE = re.compile(
+    r"<(script|style|svg|math|iframe|embed|object|noscript)[^>]*>.*?</\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
 
 # Comments, CDATA, processing instructions
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -134,13 +140,12 @@ def _extract_text_from_html(html: str) -> str:
     This is a lightweight alternative to BeautifulSoup — good enough
     for documentation pages and articles, not for complex SPAs.
     """
+    # Sanitization prepass: normalize whitespace in closing tags
+    # e.g. </script > → </script>, </style\t\n> → </style>
+    text = _TAG_WS_RE.sub(r"\1\2", html)
+
     # Remove block content that carries no readable text
-    text = _SCRIPT_RE.sub("", html)
-    text = _STYLE_RE.sub("", text)
-    text = _SVG_RE.sub("", text)
-    text = _MATH_RE.sub("", text)
-    text = _IFRAME_RE.sub("", text)
-    text = _EMBED_RE.sub("", text)
+    text = _BLOCK_TAG_RE.sub("", text)
     # Remove comments, CDATA, processing instructions
     text = _COMMENT_RE.sub("", text)
     text = _CDATA_RE.sub("", text)
@@ -150,9 +155,9 @@ def _extract_text_from_html(html: str) -> str:
     text = _JS_PROTO_RE.sub("", text)
     # Replace <br> and block tags with newlines
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    tag_pattern = r"</(p|div|h[1-6]|li|tr|section|article|blockquote|pre|td|th)>"
+    tag_pattern = r"</(p|div|h[1-6]|li|tr|section|article|blockquote|pre|td|th)\s*>"
     text = re.sub(tag_pattern, "\n", text, flags=re.IGNORECASE)
-    # Strip remaining tags
+    # Strip remaining tags (with re.DOTALL to handle newlines in tag content)
     text = re.sub(r"<[^>]+>", "", text)
     # Decode common HTML entities
     text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
@@ -191,21 +196,11 @@ class WebTools(ToolExecutor):
 
     # ── Dispatch ──────────────────────────────────────────────
 
-    async def execute(self, call: ToolCall) -> ToolResult:
-        dispatch = {
+    def _dispatch(self) -> dict[str, Callable[[ToolCall], Awaitable[ToolResult]]]:
+        return {
             "web_search": self._web_search,
             "web_fetch": self._web_fetch,
         }
-        handler = dispatch.get(call.name)
-        if handler is None:
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output=f"Unknown web tool: {call.name}",
-                success=False,
-                error=f"unknown_web_tool: {call.name}",
-            )
-        return await handler(call)
 
     # ── web_search ────────────────────────────────────────────
 
@@ -213,17 +208,9 @@ class WebTools(ToolExecutor):
         """Search the web using the configured backend."""
         query = call.arguments.get("query", "")
         if not query:
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output="Error: search query is empty",
-                success=False,
-                error="empty_query",
-            )
+            return self._error_result(call, "Error: search query is empty", "empty_query")
 
-        max_results = call.arguments.get(
-            "max_results", self.config.tools.web.max_results
-        )
+        max_results = call.arguments.get("max_results", self.config.tools.web.max_results)
         backend = self.config.tools.web.backend
 
         try:
@@ -234,40 +221,25 @@ class WebTools(ToolExecutor):
             elif backend == "exa":
                 output = await self._search_exa(query, max_results)
             else:
-                output = f"Error: unknown web search backend '{backend}'"
-                return ToolResult(
-                    tool_call_id=call.id,
-                    tool_name=call.name,
-                    output=output,
-                    success=False,
-                    error=f"unknown_backend: {backend}",
+                return self._error_result(
+                    call,
+                    f"Error: unknown web search backend '{backend}'",
+                    f"unknown_backend: {backend}",
                 )
         except httpx.HTTPStatusError as exc:
-            output = f"Search API returned HTTP {exc.response.status_code}"
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output=output,
-                success=False,
-                error=str(exc),
+            return self._error_result(
+                call,
+                f"Search API returned HTTP {exc.response.status_code}",
+                str(exc),
             )
         except (httpx.ConnectError, httpx.ReadTimeout) as exc:
-            output = f"Search API connection error: {exc}"
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output=output,
-                success=False,
-                error=str(exc),
+            return self._error_result(
+                call,
+                f"Search API connection error: {exc}",
+                str(exc),
             )
 
-        return ToolResult(
-            tool_call_id=call.id,
-            tool_name=call.name,
-            output=output,
-            success=True,
-            token_count=count_tokens(output),
-        )
+        return self._success_result(call, output)
 
     # ── Brave Search ──────────────────────────────────────────
 
@@ -369,13 +341,7 @@ class WebTools(ToolExecutor):
         """
         url = call.arguments.get("url", "")
         if not url:
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output="Error: URL is empty",
-                success=False,
-                error="empty_url",
-            )
+            return self._error_result(call, "Error: URL is empty", "empty_url")
 
         extract = call.arguments.get("extract", True)
 
@@ -389,20 +355,16 @@ class WebTools(ToolExecutor):
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output=f"HTTP {exc.response.status_code} fetching {url}",
-                success=False,
-                error=str(exc),
+            return self._error_result(
+                call,
+                f"HTTP {exc.response.status_code} fetching {url}",
+                str(exc),
             )
         except (httpx.ConnectError, httpx.ReadTimeout) as exc:
-            return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
-                output=f"Connection error fetching {url}: {exc}",
-                success=False,
-                error=str(exc),
+            return self._error_result(
+                call,
+                f"Connection error fetching {url}: {exc}",
+                str(exc),
             )
 
         content_type = resp.headers.get("content-type", "")
@@ -420,13 +382,7 @@ class WebTools(ToolExecutor):
             # Raw HTML (not extracting)
             output = body[:6000] + "\n... [HTML truncated] ..."
 
-        return ToolResult(
-            tool_call_id=call.id,
-            tool_name=call.name,
-            output=output,
-            success=True,
-            token_count=count_tokens(output),
-        )
+        return self._success_result(call, output)
 
     @staticmethod
     def _github_url_to_raw(url: str) -> str:

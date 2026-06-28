@@ -28,11 +28,33 @@ class ZoneConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CompressionConfig:
+    """Adaptive Context Compaction staged thresholds.
+
+    Each stage triggers at a specific remaining-budget fraction.
+    Later stages are more aggressive and expensive.
+    """
+
+    stage1_budget_reduction: float = 0.40
+    stage2_observation_masking: float = 0.30
+    stage3_fast_pruning: float = 0.20
+    stage4_aggressive_compression: float = 0.12
+    stage5_reversible_collapse: float = 0.08
+    stage6_full_llm: float = 0.04
+
+    protected_recency_steps: int = 3
+    min_output_length_for_pruning: int = 200
+    collapse_serialization_path: str = ".agent/collapse"
+    max_rehydration_files: int = 5
+
+
+@dataclass(frozen=True, slots=True)
 class ContextConfig:
     max_tokens: int = 128000
     zones: dict[str, ZoneConfig] = field(default_factory=dict)
     compression_trigger_fraction: float = 0.15
     emergency_fraction: float = 0.05
+    compaction: CompressionConfig = field(default_factory=CompressionConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,10 +129,26 @@ class ChunkConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DenseConfig:
+    enabled: bool = True
+    dimension: int = 384
+    backend: str = "numpy_random"  # "numpy_random" | "onnx"
+
+
+@dataclass(frozen=True, slots=True)
+class GraphConfig:
+    enabled: bool = True
+    max_depth: int = 2
+    max_expansion: int = 10
+
+
+@dataclass(frozen=True, slots=True)
 class RetrievalConfig:
     top_k: int = 10
     bm25_weight: float = 0.7
     dense_weight: float = 0.3
+    confidence_threshold: float = 0.7
+    rrf_k: int = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +157,8 @@ class RagConfig:
     index_dir: str = ".agent/index"
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    dense: DenseConfig = field(default_factory=DenseConfig)
+    graph: GraphConfig = field(default_factory=GraphConfig)
     reindex_on_startup: bool = False
 
 
@@ -142,6 +182,15 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TurboQuantConfig:
+    enabled: bool = False
+    kv_bits: int = 3
+    weight_bits: int = 4
+    sink_tokens: int = 128
+    layer_adaptive: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class LlmConfig:
     provider: str = "remote"
     model: str = "gpt-4o"
@@ -153,6 +202,7 @@ class LlmConfig:
     temperature: float = 0.2
     max_response_tokens: int = 4096
     streaming: bool = True
+    turboquant: TurboQuantConfig = field(default_factory=TurboQuantConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,8 +275,10 @@ def _build_config(raw: dict[str, Any]) -> AppConfig:
     """Walk the merged dict and construct the frozen AppConfig tree."""
 
     llm_raw = raw.get("llm", {})
+    turbo_raw = llm_raw.get("turboquant", {})
     agent_raw = raw.get("agent", {})
     context_raw = raw.get("context", {})
+    compaction_raw = context_raw.get("compaction", {})
     budget_raw = raw.get("budget", {})
     recovery_raw = raw.get("recovery", {})
     tools_raw = raw.get("tools", {})
@@ -256,10 +308,42 @@ def _build_config(raw: dict[str, Any]) -> AppConfig:
         top_k=retrieval_raw.get("top_k", 10),
         bm25_weight=retrieval_raw.get("bm25_weight", 0.7),
         dense_weight=retrieval_raw.get("dense_weight", 0.3),
+        confidence_threshold=retrieval_raw.get("confidence_threshold", 0.7),
+        rrf_k=retrieval_raw.get("rrf_k", 60),
+    )
+
+    dense_raw = rag_raw.get("dense", {})
+    dense_cfg = DenseConfig(
+        enabled=dense_raw.get("enabled", True),
+        dimension=dense_raw.get("dimension", 384),
+        backend=dense_raw.get("backend", "numpy_random"),
+    )
+
+    graph_raw = rag_raw.get("graph", {})
+    graph_cfg = GraphConfig(
+        enabled=graph_raw.get("enabled", True),
+        max_depth=graph_raw.get("max_depth", 2),
+        max_expansion=graph_raw.get("max_expansion", 10),
     )
 
     zones_raw = context_raw.get("zones", {})
     zones_cfg = _dict_to_zone_configs(zones_raw)
+
+    compaction_cfg = CompressionConfig(
+        stage1_budget_reduction=compaction_raw.get("stage1_budget_reduction", 0.40),
+        stage2_observation_masking=compaction_raw.get("stage2_observation_masking", 0.30),
+        stage3_fast_pruning=compaction_raw.get("stage3_fast_pruning", 0.20),
+        stage4_aggressive_compression=compaction_raw.get("stage4_aggressive_compression", 0.12),
+        stage5_reversible_collapse=compaction_raw.get("stage5_reversible_collapse", 0.08),
+        stage6_full_llm=compaction_raw.get("stage6_full_llm", 0.04),
+        protected_recency_steps=compaction_raw.get("protected_recency_steps", 3),
+        min_output_length_for_pruning=compaction_raw.get("min_output_length_for_pruning", 200),
+        collapse_serialization_path=compaction_raw.get(
+            "collapse_serialization_path",
+            ".agent/collapse",
+        ),
+        max_rehydration_files=compaction_raw.get("max_rehydration_files", 5),
+    )
 
     return AppConfig(
         llm=LlmConfig(
@@ -273,6 +357,13 @@ def _build_config(raw: dict[str, Any]) -> AppConfig:
             temperature=llm_raw.get("temperature", 0.2),
             max_response_tokens=llm_raw.get("max_response_tokens", 4096),
             streaming=llm_raw.get("streaming", True),
+            turboquant=TurboQuantConfig(
+                enabled=turbo_raw.get("enabled", False),
+                kv_bits=turbo_raw.get("kv_bits", 3),
+                weight_bits=turbo_raw.get("weight_bits", 4),
+                sink_tokens=turbo_raw.get("sink_tokens", 128),
+                layer_adaptive=turbo_raw.get("layer_adaptive", True),
+            ),
         ),
         agent=AgentConfig(
             max_steps=agent_raw.get("max_steps", 50),
@@ -288,6 +379,7 @@ def _build_config(raw: dict[str, Any]) -> AppConfig:
             zones=zones_cfg,
             compression_trigger_fraction=context_raw.get("compression_trigger_fraction", 0.15),
             emergency_fraction=context_raw.get("emergency_fraction", 0.05),
+            compaction=compaction_cfg,
         ),
         budget=BudgetConfig(
             step_allocations=step_alloc,
@@ -313,6 +405,8 @@ def _build_config(raw: dict[str, Any]) -> AppConfig:
             index_dir=rag_raw.get("index_dir", ".agent/index"),
             chunk=chunk_cfg,
             retrieval=retrieval_cfg,
+            dense=dense_cfg,
+            graph=graph_cfg,
             reindex_on_startup=rag_raw.get("reindex_on_startup", False),
         ),
         memory=MemoryConfig(**memory_raw),

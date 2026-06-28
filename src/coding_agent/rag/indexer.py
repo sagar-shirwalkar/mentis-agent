@@ -20,33 +20,86 @@ from pathlib import Path
 
 from coding_agent.config import AppConfig
 from coding_agent.rag.chunker import create_chunker
+from coding_agent.rag.embedder import Embedder
+from coding_agent.rag.graph import CodeGraph
 from coding_agent.types import CodeChunk, Symbol, SymbolKind
 
 logger = logging.getLogger(__name__)
 
 # Directories and files to skip during indexing
 _SKIP_DIRS = {
-    ".git", "__pycache__", "node_modules", ".mypy_cache",
-    ".pytest_cache", ".tox", ".venv", "venv", "env",
-    ".agent", "dist", "build", "target", ".next", ".nuxt",
-    "vendor", "Pods", ".gradle", ".idea", ".vscode",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "env",
+    ".agent",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".nuxt",
+    "vendor",
+    "Pods",
+    ".gradle",
+    ".idea",
+    ".vscode",
 }
 
 _SKIP_EXTENSIONS = {
-    ".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-    ".mp3", ".mp4", ".wav", ".avi", ".mov",
-    ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-    ".db", ".sqlite", ".sqlite3",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".lock", ".min.js", ".min.css",
+    ".pyc",
+    ".pyo",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".exe",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".avi",
+    ".mov",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".7z",
+    ".rar",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".lock",
+    ".min.js",
+    ".min.css",
 }
 
 _SKIP_FILES = {
-    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-    "Gemfile.lock", "Cargo.lock", "go.sum",
-    ".DS_Store", "Thumbs.db",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Gemfile.lock",
+    "Cargo.lock",
+    "go.sum",
+    ".DS_Store",
+    "Thumbs.db",
 }
 
 
@@ -67,6 +120,10 @@ class Indexer:
         self.index_dir = self.workdir / config.rag.index_dir
         self.db_path = self.index_dir / "code_index.db"
         self.chunker = create_chunker(config.rag.chunk)
+        self.embedder = Embedder(
+            dimension=config.rag.dense.dimension if hasattr(config.rag, "dense") else 384,
+        )
+        self.graph: CodeGraph | None = None
         self._conn: sqlite3.Connection | None = None
 
     # ── Lifecycle ─────────────────────────────────────────────
@@ -78,6 +135,9 @@ class Indexer:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._create_tables()
+        self.graph = CodeGraph(self._conn)
+        # In-memory embedding cache for fast dense retrieval
+        self._embedding_cache: dict[int, list[float]] | None = None
         logger.info("Indexer started: db=%s", self.db_path)
 
     async def close(self) -> None:
@@ -127,6 +187,13 @@ class Indexer:
 
             CREATE INDEX IF NOT EXISTS idx_chunks_symbol
                 ON chunks(symbol_name);
+
+            CREATE TABLE IF NOT EXISTS chunk_embeddings (
+                chunk_id INTEGER PRIMARY KEY,
+                vector BLOB NOT NULL,
+                model TEXT NOT NULL DEFAULT 'numpy_random',
+                FOREIGN KEY (chunk_id) REFERENCES chunks(id)
+            );
 
             CREATE TABLE IF NOT EXISTS file_hashes (
                 file_path TEXT PRIMARY KEY,
@@ -179,9 +246,24 @@ class Indexer:
             self._insert_symbols(symbols)
             self._insert_chunks(chunks)
 
+            # Store embeddings for dense retrieval
+            if chunks:
+                self._store_chunk_embeddings(chunks)
+
+            # Store graph edges
+            if self.graph and chunks:
+                chunk_rows = self._conn.execute(
+                    "SELECT id, line_start FROM chunks WHERE file_path = ? ORDER BY line_start",
+                    (rel_path,),
+                ).fetchall()
+                for chunk_row, chunk in zip(chunk_rows, chunks, strict=True):
+                    if chunk.edges:
+                        self.graph.insert_edges(chunk_row[0], chunk.edges)
+
             # Update file hash
             content_hash = hashlib.md5(content.encode()).hexdigest()
             import time
+
             self._conn.execute(
                 "INSERT OR REPLACE INTO file_hashes "
                 "(file_path, content_hash, indexed_at) VALUES (?, ?, ?)",
@@ -196,7 +278,9 @@ class Indexer:
 
         logger.info(
             "Indexing complete: %d files, %d symbols, %d chunks",
-            files_indexed, total_symbols, total_chunks,
+            files_indexed,
+            total_symbols,
+            total_chunks,
         )
 
         return {
@@ -208,10 +292,28 @@ class Indexer:
     def _discover_source_files(self) -> list[Path]:
         """Walk the project directory and find source files to index."""
         source_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx",
-            ".rs", ".go", ".java", ".rb", ".c", ".cpp",
-            ".cs", ".swift", ".kt", ".scala", ".lua", ".php",
-            ".md", ".yaml", ".yml", ".toml", ".json",
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".jsx",
+            ".rs",
+            ".go",
+            ".java",
+            ".rb",
+            ".c",
+            ".cpp",
+            ".cs",
+            ".swift",
+            ".kt",
+            ".scala",
+            ".lua",
+            ".php",
+            ".md",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".json",
         }
 
         files: list[Path] = []
@@ -279,8 +381,6 @@ class Indexer:
         We extract the signature (first line) and docstring.
         """
         symbols: list[Symbol] = []
-        _lines = content.split("\n")
-
         for chunk in chunks:
             if not chunk.symbol_name or chunk.symbol_kind in (None, SymbolKind.MODULE):
                 continue
@@ -294,16 +394,18 @@ class Indexer:
             # Body is the full chunk content
             body = chunk.content
 
-            symbols.append(Symbol(
-                name=chunk.symbol_name,
-                kind=chunk.symbol_kind or SymbolKind.FUNCTION,
-                file_path=chunk.file_path,
-                line_start=chunk.line_start,
-                line_end=chunk.line_end,
-                signature=signature,
-                docstring=docstring,
-                body=body,
-            ))
+            symbols.append(
+                Symbol(
+                    name=chunk.symbol_name,
+                    kind=chunk.symbol_kind or SymbolKind.FUNCTION,
+                    file_path=chunk.file_path,
+                    line_start=chunk.line_start,
+                    line_end=chunk.line_end,
+                    signature=signature,
+                    docstring=docstring,
+                    body=body,
+                )
+            )
 
         return symbols
 
@@ -349,7 +451,7 @@ class Indexer:
                 for j in range(i + 1, min(i + 20, len(lines))):
                     next_line = lines[j].strip()
                     if quote_char in next_line:
-                        doc_lines.append(next_line[:next_line.index(quote_char)])
+                        doc_lines.append(next_line[: next_line.index(quote_char)])
                         break
                     doc_lines.append(next_line)
                 return " ".join(doc_lines).strip()[:200]
@@ -398,6 +500,53 @@ class Indexer:
                     json.dumps(chunk.token_frequencies),
                 ),
             )
+
+    # ── Embedding storage ─────────────────────────────────────
+
+    def _store_chunk_embeddings(self, chunks: list[CodeChunk]) -> None:
+        """Compute and store embeddings for a batch of chunks."""
+        assert self._conn is not None
+
+        import struct
+
+        texts = [c.content[:2048] for c in chunks]
+        vectors = self.embedder.embed_batch(texts)
+
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            blob = struct.pack(f"{len(vector)}f", *vector)
+            self._conn.execute(
+                "INSERT OR REPLACE INTO chunk_embeddings (chunk_id, vector, model) "
+                "VALUES ((SELECT id FROM chunks WHERE file_path = ? AND line_start = ?), ?, ?)",
+                (chunk.file_path, chunk.line_start, blob, self.embedder.backend),
+            )
+
+    def load_embedding_cache(self) -> None:
+        """Load all embeddings into memory for fast dense search."""
+        assert self._conn is not None
+
+        if self._embedding_cache is not None:
+            return
+
+        import struct
+
+        rows = self._conn.execute("SELECT chunk_id, vector FROM chunk_embeddings").fetchall()
+
+        cache: dict[int, list[float]] = {}
+        for chunk_id, blob in rows:
+            if len(blob) >= 4:
+                dim = len(blob) // 4
+                vector = list(struct.unpack(f"{dim}f", blob))
+                cache[chunk_id] = vector
+
+        self._embedding_cache = cache
+        logger.info("Embedding cache loaded: %d vectors", len(cache))
+
+    def get_all_embeddings(self) -> tuple[dict[int, list[float]], list[int]]:
+        """Return (embedding_map: {chunk_id: vector}, chunk_ids) for dense search."""
+        self.load_embedding_cache()
+        assert self._embedding_cache is not None
+        chunk_ids = sorted(self._embedding_cache.keys())
+        return self._embedding_cache, chunk_ids
 
     # ── Queries ───────────────────────────────────────────────
 
@@ -474,9 +623,7 @@ class Indexer:
         Returns: {chunk_id: {token: frequency}}
         """
         assert self._conn is not None
-        rows = self._conn.execute(
-            "SELECT id, token_freq_json FROM chunks"
-        ).fetchall()
+        rows = self._conn.execute("SELECT id, token_freq_json FROM chunks").fetchall()
 
         result: dict[int, dict[str, int]] = {}
         for chunk_id, freq_json in rows:

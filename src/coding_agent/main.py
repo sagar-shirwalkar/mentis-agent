@@ -124,8 +124,12 @@ async def run_agent(config: AppConfig, task: str) -> None:
     try:
         agent = AgentCore(config=config, llm=llm, task=task)
 
-        logger.info("Starting agent with profile=%s model=%s task=%r",
-                     config.llm.provider, config.llm.model, task[:80])
+        logger.info(
+            "Starting agent with profile=%s model=%s task=%r",
+            config.llm.provider,
+            config.llm.model,
+            task[:80],
+        )
 
         result = await agent.run()
 
@@ -156,23 +160,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="The coding task for the agent to perform",
     )
     parser.add_argument(
-        "--profile", "-p",
+        "--profile",
+        "-p",
         default="large_model",
         choices=["large_model", "local_model"],
         help="Configuration profile (default: large_model)",
     )
     parser.add_argument(
-        "--working-dir", "-d",
+        "--working-dir",
+        "-d",
         default=".",
         help="Project directory the agent operates on (default: .)",
     )
     parser.add_argument(
-        "--model", "-m",
+        "--model",
+        "-m",
         default=None,
         help="Override the model name from config",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Set logging to DEBUG",
     )

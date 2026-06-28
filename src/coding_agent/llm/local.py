@@ -24,12 +24,15 @@ from typing import Any
 
 import httpx
 
+from coding_agent.config import TurboQuantConfig
 from coding_agent.llm.base import (
     LLMClient,
     StreamChunk,
     StreamEvent,
     UsageStats,
     count_tokens,
+    message_to_openai_dict,
+    openai_sse_chunks,
 )
 from coding_agent.types import Message, Role, ToolCall, ToolSchema
 
@@ -79,8 +82,14 @@ def _ollama_tool_schemas(tools: list[ToolSchema]) -> list[dict[str, Any]]:
         props: dict[str, Any] = {}
         required: list[str] = []
         for p in t.parameters:
-            _type_map = {"str": "string", "int": "integer", "float": "number",
-                          "bool": "boolean", "list": "array", "dict": "object"}
+            _type_map = {
+                "str": "string",
+                "int": "integer",
+                "float": "number",
+                "bool": "boolean",
+                "list": "array",
+                "dict": "object",
+            }
             props[p.name] = {
                 "type": _type_map.get(p.type, p.type),
                 "description": p.description,
@@ -90,18 +99,20 @@ def _ollama_tool_schemas(tools: list[ToolSchema]) -> list[dict[str, Any]]:
             if p.required:
                 required.append(p.name)
 
-        result.append({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": props,
-                    "required": required,
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": props,
+                        "required": required,
+                    },
                 },
-            },
-        })
+            }
+        )
     return result
 
 
@@ -128,11 +139,13 @@ class LocalLLMClient(LLMClient):
         temperature: float = 0.1,
         max_tokens: int = 2048,
         timeout_seconds: float = 180.0,
+        turboquant: TurboQuantConfig | None = None,
     ) -> None:
         super().__init__(model, temperature, max_tokens)
         self.ollama_base = ollama_base.rstrip("/")
         self.mlx_model_path = mlx_model_path
         self.mlx_fallback = mlx_fallback
+        self._turboquant = turboquant
         self._backend: str = "ollama"  # "ollama" | "mlx"
         self._mlx_port: int = 0
         self._mlx_proc: subprocess.Popen[bytes] | None = None
@@ -186,17 +199,39 @@ class LocalLLMClient(LLMClient):
 
         # Find a free port
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("127.0.0.1", 0))
         self._mlx_port = sock.getsockname()[1]
         sock.close()
 
         cmd = [
-            "python3", "-m", "mlx_lm.server",
-            "--model", self.mlx_model_path or "",
-            "--port", str(self._mlx_port),
-            "--host", "127.0.0.1",
+            "python3",
+            "-m",
+            "mlx_lm.server",
+            "--model",
+            self.mlx_model_path or "",
+            "--port",
+            str(self._mlx_port),
+            "--host",
+            "127.0.0.1",
         ]
+
+        # Append TurboQuant flags if configured
+        tq = getattr(self, "_turboquant", None)
+        if tq and tq.enabled:
+            cmd.extend(
+                [
+                    "--kv-bits",
+                    str(tq.kv_bits),
+                    "--weight-bits",
+                    str(tq.weight_bits),
+                    "--sink-tokens",
+                    str(tq.sink_tokens),
+                ]
+            )
+            if tq.layer_adaptive:
+                cmd.append("--layer-adaptive")
         logger.info("Starting MLX server: %s", " ".join(str(c) for c in cmd))
         self._mlx_proc = subprocess.Popen(
             [str(c) for c in cmd],
@@ -273,11 +308,11 @@ class LocalLLMClient(LLMClient):
         tool_calls_raw = data.get("message", {}).get("tool_calls", [])
         tool_calls = self._parse_ollama_tool_calls(tool_calls_raw) if tool_calls_raw else None
 
-        # Ollama doesn't always report token counts — estimate
-        _usage = UsageStats(
+        usage = UsageStats(
             prompt_tokens=count_tokens(str(payload)),
             completion_tokens=count_tokens(content),
         )
+        logger.debug("Ollama chat usage: %s", usage)
 
         return Message(
             role=Role.ASSISTANT,
@@ -424,51 +459,39 @@ class LocalLLMClient(LLMClient):
 
         tool_call_accum: dict[str, dict[str, Any]] = {}
 
-        async with self._http.stream("POST", url, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:].strip()
-                if data_str == "[DONE]":
-                    for call_id, td in tool_call_accum.items():
-                        yield StreamChunk(
-                            event=StreamEvent.TOOL_CALL_END,
-                            tool_call_id=call_id,
-                            tool_name=td.get("name", ""),
-                        )
-                    yield StreamChunk(event=StreamEvent.DONE)
-                    return
+        async for chunk in openai_sse_chunks(self._http, url, payload):
+            delta = chunk.get("choices", [{}])[0].get("delta", {})
 
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
+            if delta.get("content"):
+                yield StreamChunk(event=StreamEvent.TEXT, content=delta["content"])
 
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
+            for tc_delta in delta.get("tool_calls", []):
+                call_id = tc_delta.get("id", f"tc_{tc_delta.get('index', 0)}")
+                if call_id not in tool_call_accum:
+                    tool_call_accum[call_id] = {"name": "", "arguments": ""}
+                    yield StreamChunk(
+                        event=StreamEvent.TOOL_CALL_START,
+                        tool_call_id=call_id,
+                        tool_name=tc_delta.get("function", {}).get("name", ""),
+                    )
+                fn_delta = tc_delta.get("function", {})
+                if fn_delta.get("name"):
+                    tool_call_accum[call_id]["name"] = fn_delta["name"]
+                if fn_delta.get("arguments"):
+                    tool_call_accum[call_id]["arguments"] += fn_delta["arguments"]
+                    yield StreamChunk(
+                        event=StreamEvent.TOOL_CALL_DELTA,
+                        tool_call_id=call_id,
+                        tool_arguments_delta=fn_delta["arguments"],
+                    )
 
-                if delta.get("content"):
-                    yield StreamChunk(event=StreamEvent.TEXT, content=delta["content"])
-
-                for tc_delta in delta.get("tool_calls", []):
-                    call_id = tc_delta.get("id", f"tc_{tc_delta.get('index', 0)}")
-                    if call_id not in tool_call_accum:
-                        tool_call_accum[call_id] = {"name": "", "arguments": ""}
-                        yield StreamChunk(
-                            event=StreamEvent.TOOL_CALL_START,
-                            tool_call_id=call_id,
-                            tool_name=tc_delta.get("function", {}).get("name", ""),
-                        )
-                    fn_delta = tc_delta.get("function", {})
-                    if fn_delta.get("name"):
-                        tool_call_accum[call_id]["name"] = fn_delta["name"]
-                    if fn_delta.get("arguments"):
-                        tool_call_accum[call_id]["arguments"] += fn_delta["arguments"]
-                        yield StreamChunk(
-                            event=StreamEvent.TOOL_CALL_DELTA,
-                            tool_call_id=call_id,
-                            tool_arguments_delta=fn_delta["arguments"],
-                        )
+        for call_id, td in tool_call_accum.items():
+            yield StreamChunk(
+                event=StreamEvent.TOOL_CALL_END,
+                tool_call_id=call_id,
+                tool_name=td.get("name", ""),
+            )
+        yield StreamChunk(event=StreamEvent.DONE)
 
     def _mlx_payload(
         self,
@@ -479,12 +502,9 @@ class LocalLLMClient(LLMClient):
         stream: bool,
     ) -> dict[str, Any]:
         """Build the JSON payload for the MLX OpenAI-compatible server."""
-        # Reuse RemoteLLMClient's format since MLX server is OpenAI-compatible
-        from coding_agent.llm.remote import RemoteLLMClient
-
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [RemoteLLMClient._message_to_dict(m) for m in messages],
+            "messages": [message_to_openai_dict(m) for m in messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": stream,

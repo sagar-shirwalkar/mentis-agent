@@ -74,9 +74,7 @@ class Verifier:
         check_name = "tool_success"
         checks_run.append(check_name)
         if step.tool_result and not step.tool_result.success and step.tool_call:
-            issues.append(
-                f"Tool {step.tool_call.name} failed: {step.tool_result.error}"
-            )
+            issues.append(f"Tool {step.tool_call.name} failed: {step.tool_result.error}")
             return VerificationResult(
                 passed=False,
                 message=f"Tool call failed: {step.tool_result.error}",
@@ -92,9 +90,7 @@ class Verifier:
             search_text = args.get("search", "")
             replace_text = args.get("replace", "")
             if search_text == replace_text:
-                issues.append(
-                    "edit_file: search and replace are identical — no change made"
-                )
+                issues.append("edit_file: search and replace are identical — no change made")
                 return VerificationResult(
                     passed=False,
                     message="Edit had no effect (search == replace)",
@@ -108,9 +104,7 @@ class Verifier:
         if step.tool_call and step.tool_call.name == "write_file":
             content = step.tool_call.arguments.get("content", "")
             if len(content.strip()) < 10:
-                issues.append(
-                    "write_file: content is suspiciously short (<10 chars)"
-                )
+                issues.append("write_file: content is suspiciously short (<10 chars)")
                 return VerificationResult(
                     passed=False,
                     message="Written file content is too short — possible error",
@@ -129,10 +123,7 @@ class Verifier:
                     issues.extend(diag_issues)
                     return VerificationResult(
                         passed=False,
-                        message=(
-                            f"Diagnostics found {len(diag_issues)} issue(s) "
-                            f"after edit"
-                        ),
+                        message=(f"Diagnostics found {len(diag_issues)} issue(s) after edit"),
                         checks=checks_run,
                         issues=issues,
                     )
@@ -152,7 +143,7 @@ class Verifier:
             ]
             if len(recent_reads) >= 2:
                 issues.append(
-                    f"File {path} has been read {len(recent_reads)+1} times "
+                    f"File {path} has been read {len(recent_reads) + 1} times "
                     f"recently — consider using search instead"
                 )
                 # Don't fail, just warn
@@ -209,7 +200,7 @@ class Verifier:
                 # Only return errors, not warnings
                 return [line for line in lines if file_path in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("pyflakes not available for %s", file_path)
 
         # Fallback: try ruff
         try:
@@ -225,7 +216,7 @@ class Verifier:
                 lines = stdout.decode().strip().split("\n")
                 return [line for line in lines if "error" in line.lower()][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("ruff not available for %s", file_path)
 
         return []
 
@@ -247,7 +238,7 @@ class Verifier:
                 lines = stdout.decode().strip().split("\n")
                 return [line for line in lines if "error TS" in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("tsc not available for %s", file_path)
         return []
 
     async def _check_rust(self, file_path: str) -> list[str]:
@@ -263,11 +254,7 @@ class Verifier:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
             if stdout:
                 lines = stdout.decode().strip().split("\n")
-                return [
-                    line
-                    for line in lines
-                    if "error" in line.lower() and file_path in line
-                ][:5]
+                return [line for line in lines if "error" in line.lower() and file_path in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("cargo not available for %s", file_path)
         return []

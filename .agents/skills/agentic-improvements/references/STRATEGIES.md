@@ -3,6 +3,18 @@
 > Reference file for the agentic-improvements skill.
 > Detailed patterns for implementing the improvements outlined in SKILL.md.
 
+## Table of Contents
+- [1. Tool Selection Strategies](#1-tool-selection-strategies)
+- [2. Planning Strategies](#2-planning-strategies)
+- [3. Context Management Strategies](#3-context-management-strategies)
+- [4. Graceful Degradation Chain](#4-graceful-degradation-chain)
+- [5. Cross-Session Memory Pattern](#5-cross-session-memory-pattern)
+- [6. (reserved)](#6-reserved)
+- [7. Adaptive Context Compaction (ACC)](#7-adaptive-context-compaction-acc)
+- [8. Three-Tier Hybrid RAG](#8-three-tier-hybrid-rag)
+- [9. CROSSWALK.md — Session Bridge Pattern](#9-crosswalkmd--session-bridge-pattern)
+- [10. Testing Patterns for Agent Improvements](#10-testing-patterns-for-agent-improvements)
+
 ---
 
 ## 1. Tool Selection Strategies
@@ -295,7 +307,207 @@ def compact():
 
 ---
 
-## 6. Testing Patterns for Agent Improvements
+## 7. Adaptive Context Compaction (ACC)
+
+Claude Code-inspired 6-tier staged compaction pipeline, cheapest-first.
+Meredith's implementation is in `context/compactor.py` with corresponding `CompactionStage` enum in `types.py`.
+
+### Stage 1: BudgetReduction (every turn)
+```
+Cap each tool output to its zone budget allocation.
+No history removal — just truncation of verbose outputs.
+```
+
+### Stage 2: ObservationMasking (~70% utilization)
+```
+Replace older tool-result messages with compact reference pointers.
+"[output offloaded to scratch file]" replaces the full content.
+Most recent N tool outputs retained at full fidelity.
+```
+
+### Stage 3: FastPruning (~80% utilization)
+```
+Drop tool outputs below MIN_LENGTH threshold (<200 chars).
+Preserve outputs within PROTECTED_RECENCY window.
+Cheaper than LLM-based compaction — often reclaims enough space.
+```
+
+### Stage 4: AggressiveCompression (~90% utilization)
+```
+Shrink retention window to only the most recent tool output.
+Mask all older observations.
+Trigger cache-aware path selection:
+  - Hot cache → use cache_edits (delete cached blocks without rewriting)
+  - Cold cache → simple truncation
+```
+
+### Stage 5: ReversibleCollapse (~95% utilization)
+```
+Serialize full conversation to bytes with zlib compression.
+Fully reversible via deserialization — no information lost.
+Middle ground between cheap truncation and expensive LLM call.
+Outcome: `RehydrationData` payload that can restore exact state.
+```
+
+### Stage 6: FullLLMSummarization (~99% utilization)
+```
+Serialize full conversation to scratch file (non-lossy).
+LLM summarization of middle portion.
+Post-compaction rehydration:
+  1. Restore current plan phase
+  2. Restore modified files list (max 5)
+  3. Re-inject skills (token-capped)
+  4. Reset tool state
+  5. Inject session-continuation reminder
+```
+
+### Two-Phase CoT Summarization
+
+```python
+# Phase 1: LLM writes chain-of-thought + conclusion
+summary_response = await llm.generate(
+    f"Compress this conversation.\n"
+    f"First, reason step-by-step about what to keep.\n"
+    f"Then output the structured summary.\n"
+    f"{conversation}"
+)
+# Phase 2: Keep only the conclusion, discard reasoning
+summary = parse_compact_summary(summary_response)
+# The CoT is discarded — it improved quality but wastes tokens in-context
+```
+
+### Implementation Considerations
+
+- Stage thresholds are configurable per profile (base.yaml)
+- ACC should run at the start of each iteration, not as an emergency measure
+- Full context serialized to scratch file before LLM summarization (non-lossy)
+- Post-compaction rehydration is as important as the summary itself
+- Cache-aware dual paths: same algorithm, different strategy by cache state
+
+---
+
+## 8. Three-Tier Hybrid RAG
+
+BM25-only → three-tier fusion with RRF:
+
+### Tier 1: Keyword (Fast, Always On)
+```
+BM25 (SQLite FTS5 or Tantivy) + ripgrep fallback
+  - Handles identifier-heavy code search well
+  - Low latency, zero GPU
+  - Always runs first
+```
+
+### Tier 2: Dense Semantic (Medium, ONNX)
+```
+ONNX MiniLM → FAISS IndexFlatIP (cosine via inner product)
+  - No PyTorch dependency
+  - ~3ms warm search
+  - Cross-encoder reranker via ONNX (optional)
+  - Adaptive-k: dynamic top-k based on similarity distribution
+```
+
+### Tier 3: Structural Graph (Heavy, On-Demand)
+```
+AST-derived knowledge graph → BFS expansion from seed hits
+  - Reuses existing tree-sitter chunker
+  - Edge types: CONTAINS, CALLS, IMPORTS, INHERITS
+  - Only triggered when Tier 1+2 confidence is low
+  - ZoomRAG coarse-to-fine for large codebases
+```
+
+### Fusion: Reciprocal Rank Fusion
+
+```python
+def rrf(results, k=60):
+    """Fuse multiple ranked result lists."""
+    scores = {}
+    for rank, doc in enumerate(results):
+        scores[doc.id] = scores.get(doc.id, 0) + 1 / (k + rank)
+    return sorted(scores.items(), key=lambda x: -x[1])
+```
+
+### Adaptive-k (Dynamic Top-K)
+
+```python
+def adaptive_k(scores, lambda_val=0.5, min_k=1, max_k=50):
+    """Select k based on similarity distribution."""
+    threshold = scores.mean() + lambda_val * scores.std()
+    return min(max((scores > threshold).sum(), min_k), max_k)
+```
+
+### Tier Selection
+
+```
+Query → Tier 1 (BM25) → confidence > 0.8? → return results
+                          ↓ no
+                       Tier 2 (Dense) → confidence > 0.8? → RRF Tier 1+2 → return
+                                          ↓ no
+                                       Tier 3 (Graph) → RRF all three → return
+```
+
+---
+
+## 9. CROSSWALK.md — Session Bridge Pattern
+
+A structured relay document that agents read at session start and write at key boundaries. Unlike MEMORY.md (cross-session knowledge index), CROSSWALK.md is a **forward-directed handoff** — every field drives the next session's reasoning, not archive the current one.
+
+### Structure
+
+```markdown
+# CROSSWALK.md — Session Bridge
+
+## Active Work
+- **Current phase**: [phase name]
+- **Files modified**: [list]
+- **Uncommitted changes**: [description]
+
+## Session History (Last 3)
+- [2026-06-28] Implemented ACC pipeline — 5-stage compaction
+- [2026-06-27] Built HierarchicalPlanner — phase lifecycle
+- [2026-06-26] Added checkpoint system — JSON serialization
+
+## Key Decisions
+- [Decision] with rationale → [location in project docs]
+
+## Open Questions
+- [Question] blocking [component]
+
+## Next Action
+- [Single clear directive for the next session]
+```
+
+### Lifecycle
+
+```
+Session start → read CROSSWALK.md → update Active Work
+     ↓
+  Work...
+     ↓
+Key boundaries (phase complete, decision made) → update CROSSWALK.md
+     ↓
+Session end → write final state + Next Action
+```
+
+### Rules
+
+- Keep under ~2,000 tokens to preserve context
+- Archive older decisions to `.agent/handoff/archive/` as it grows
+- Use atomic writes (temp file + rename) to prevent partial-write corruption
+- Commit to git after significant milestones for audit trail
+- Never duplicate content already in MEMORY.md — reference it by path
+
+### Relationship to MEMORY.md
+
+| File | Purpose | Loaded | Writen by |
+|---|---|---|---|
+| MEMORY.md | Cross-session knowledge index | Always (first 200 lines) | Agent during sessions |
+| CROSSWALK.md | Session-to-session handoff | At session start | Agent at boundaries + session end |
+| AGENTS.md | Static project rules | Always | Humans |
+
+---
+
+## 10. Testing Patterns for Agent Improvements
 
 ### What to Test
 

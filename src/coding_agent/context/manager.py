@@ -42,9 +42,7 @@ class ContextManager:
         self.compressor = OutputCompressor()
 
         # Zone storage: zone_name → list of ContextItem
-        self.zones: dict[str, list[ContextItem]] = {
-            name: [] for name in ZoneName
-        }
+        self.zones: dict[str, list[ContextItem]] = {name: [] for name in ZoneName}
 
         # Configure zone allocations in the budget
         for name, zcfg in config.context.zones.items():
