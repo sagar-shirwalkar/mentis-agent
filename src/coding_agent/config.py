@@ -25,8 +25,7 @@ type-safe access throughout the codebase.
 def _substitute_env_vars(data: Any) -> Any:
     """Recursively substitute ${ENV_VAR} placeholders with environment variable values."""
     if isinstance(data, str):
-
-        def replace(match):
+        def replace(match: re.Match[str]) -> str:
             var_name = match.group(1)
             return os.environ.get(var_name, match.group(0))
 
