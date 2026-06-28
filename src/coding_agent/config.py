@@ -279,7 +279,8 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         data = yaml.safe_load(f)
     data = data if isinstance(data, dict) else {}
     # Substitute environment variable placeholders
-    return _substitute_env_vars(data)
+    result = _substitute_env_vars(data)
+    return result if isinstance(result, dict) else {}
 
 
 def _dict_to_zone_configs(raw: dict[str, Any]) -> dict[str, ZoneConfig]:
