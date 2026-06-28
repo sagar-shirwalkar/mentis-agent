@@ -40,12 +40,12 @@ class ToolExecutor(ABC):
           - Execute the operation (with timeout)
           - Return a ToolResult with output text
         """
-        ...
+        raise NotImplementedError("Subclasses must implement execute")
 
     @abstractmethod
     def schemas(self) -> list[ToolSchema]:
         """Return the tool schemas this executor provides."""
-        ...
+        raise NotImplementedError("Subclasses must implement schemas")
 
 
 # ──────────────────────────────────────────────────────────────

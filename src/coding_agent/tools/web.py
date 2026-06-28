@@ -105,15 +105,15 @@ def _format_hits(hits: list[_SearchHit], max_results: int) -> str:
 # ──────────────────────────────────────────────────────────────
 
 
-# Script/style blocks: tolerate whitespace before > in closing tags
-_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script\s*>", re.DOTALL | re.IGNORECASE)
-_STYLE_RE = re.compile(r"<style[^>]*>.*?</style\s*>", re.DOTALL | re.IGNORECASE)
+# Sanitization prepass: normalize whitespace inside tags so closing tag
+# patterns like </script >, </script\t\n> become </script>
+_TAG_WS_RE = re.compile(r"(</\w+)\s+(>)")
 
-# Blocks unlikely to carry readable text
-_SVG_RE = re.compile(r"<svg[^>]*>.*?</svg>", re.DOTALL | re.IGNORECASE)
-_MATH_RE = re.compile(r"<math[^>]*>.*?</math>", re.DOTALL | re.IGNORECASE)
-_IFRAME_RE = re.compile(r"<iframe[^>]*>.*?</iframe>", re.DOTALL | re.IGNORECASE)
-_EMBED_RE = re.compile(r"<(?:embed|object)[^>]*>.*?</(?:embed|object)>", re.DOTALL | re.IGNORECASE)
+# Tags whose content carries no readable text (handles whitespace in closing tags)
+_BLOCK_TAG_RE = re.compile(
+    r"<(script|style|svg|math|iframe|embed|object|noscript)[^>]*>.*?</\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
 
 # Comments, CDATA, processing instructions
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -140,13 +140,12 @@ def _extract_text_from_html(html: str) -> str:
     This is a lightweight alternative to BeautifulSoup — good enough
     for documentation pages and articles, not for complex SPAs.
     """
+    # Sanitization prepass: normalize whitespace in closing tags
+    # e.g. </script > → </script>, </style\t\n> → </style>
+    text = _TAG_WS_RE.sub(r"\1\2", html)
+
     # Remove block content that carries no readable text
-    text = _SCRIPT_RE.sub("", html)
-    text = _STYLE_RE.sub("", text)
-    text = _SVG_RE.sub("", text)
-    text = _MATH_RE.sub("", text)
-    text = _IFRAME_RE.sub("", text)
-    text = _EMBED_RE.sub("", text)
+    text = _BLOCK_TAG_RE.sub("", text)
     # Remove comments, CDATA, processing instructions
     text = _COMMENT_RE.sub("", text)
     text = _CDATA_RE.sub("", text)
@@ -156,9 +155,9 @@ def _extract_text_from_html(html: str) -> str:
     text = _JS_PROTO_RE.sub("", text)
     # Replace <br> and block tags with newlines
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    tag_pattern = r"</(p|div|h[1-6]|li|tr|section|article|blockquote|pre|td|th)>"
+    tag_pattern = r"</(p|div|h[1-6]|li|tr|section|article|blockquote|pre|td|th)\s*>"
     text = re.sub(tag_pattern, "\n", text, flags=re.IGNORECASE)
-    # Strip remaining tags
+    # Strip remaining tags (with re.DOTALL to handle newlines in tag content)
     text = re.sub(r"<[^>]+>", "", text)
     # Decode common HTML entities
     text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")

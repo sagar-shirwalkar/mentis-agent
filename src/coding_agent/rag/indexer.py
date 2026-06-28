@@ -381,8 +381,6 @@ class Indexer:
         We extract the signature (first line) and docstring.
         """
         symbols: list[Symbol] = []
-        _lines = content.split("\n")
-
         for chunk in chunks:
             if not chunk.symbol_name or chunk.symbol_kind in (None, SymbolKind.MODULE):
                 continue

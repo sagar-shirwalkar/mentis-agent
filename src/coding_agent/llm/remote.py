@@ -96,11 +96,12 @@ class RemoteLLMClient(LLMClient):
         tool_calls = self._parse_tool_calls_response(msg.get("tool_calls", []))
 
         usage_raw = resp_data.get("usage", {})
-        _usage = UsageStats(
+        usage = UsageStats(
             prompt_tokens=usage_raw.get("prompt_tokens", 0),
             completion_tokens=usage_raw.get("completion_tokens", 0),
             total_tokens=usage_raw.get("total_tokens", 0),
         )
+        logger.debug("Remote chat usage: %s", usage)
 
         return Message(
             role=Role.ASSISTANT,

@@ -306,11 +306,11 @@ class LocalLLMClient(LLMClient):
         tool_calls_raw = data.get("message", {}).get("tool_calls", [])
         tool_calls = self._parse_ollama_tool_calls(tool_calls_raw) if tool_calls_raw else None
 
-        # Ollama doesn't always report token counts — estimate
-        _usage = UsageStats(
+        usage = UsageStats(
             prompt_tokens=count_tokens(str(payload)),
             completion_tokens=count_tokens(content),
         )
+        logger.debug("Ollama chat usage: %s", usage)
 
         return Message(
             role=Role.ASSISTANT,

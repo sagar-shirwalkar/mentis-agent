@@ -108,7 +108,7 @@ class Embedder:
         if norm > 0:
             features /= norm
 
-        return features.tolist()
+        return features.tolist()  # type: ignore[no-any-return]
 
     # ── ONNX backend (optional) ───────────────────────────────
 
@@ -166,7 +166,7 @@ class Embedder:
         return None
 
     @staticmethod
-    def _tokenise_for_onnx(texts: list[str]) -> np.ndarray:
+    def _tokenise_for_onnx(texts: list[str]) -> Any:
         """
         Minimal tokenisation for ONNX MiniLM.
 

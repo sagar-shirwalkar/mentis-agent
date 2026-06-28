@@ -436,6 +436,7 @@ class SearchTools(ToolExecutor):
                 if output:
                     return output
             except (TimeoutError, FileNotFoundError):
+                logger.warning("Diagnostic tool %s not available for %s", name, path)
                 continue
         return ""
 
@@ -460,6 +461,7 @@ class SearchTools(ToolExecutor):
             ]
             return "\n".join(relevant[:10])
         except (TimeoutError, FileNotFoundError):
+            logger.warning("tsc not available for TypeScript diagnostics")
             return ""
 
     async def _diag_rust(self) -> str:
@@ -478,6 +480,7 @@ class SearchTools(ToolExecutor):
             errors = [line for line in output.split("\n") if "error" in line.lower()][:10]
             return "\n".join(errors)
         except (TimeoutError, FileNotFoundError):
+            logger.warning("cargo not available for Rust diagnostics")
             return ""
 
     async def _diag_go(self, path: Path) -> str:
@@ -494,4 +497,5 @@ class SearchTools(ToolExecutor):
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
             return stdout.decode(errors="replace").strip()
         except (TimeoutError, FileNotFoundError):
+            logger.warning("go vet not available for Go diagnostics")
             return ""

@@ -113,7 +113,7 @@ class Planner(ABC):
         Returns:
             A Plan with ordered SubTasks and dependency edges.
         """
-        ...
+        raise NotImplementedError("Subclasses must implement plan")
 
     @abstractmethod
     async def replan(
@@ -129,7 +129,7 @@ class Planner(ABC):
         The planner may modify, add, or remove future subtasks.
         Completed subtasks are preserved.
         """
-        ...
+        raise NotImplementedError("Subclasses must implement replan")
 
     # ── Shared helpers ────────────────────────────────────────
 

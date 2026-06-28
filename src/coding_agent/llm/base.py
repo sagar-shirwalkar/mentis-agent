@@ -159,7 +159,7 @@ class LLMClient(abc.ABC):
 
         If tools are provided, the response may contain tool_calls.
         """
-        ...
+        raise NotImplementedError("Subclasses must implement chat")
 
     # ── Streaming ─────────────────────────────────────────────
 
@@ -178,14 +178,14 @@ class LLMClient(abc.ABC):
         TOOL_CALL_* chunks for function calls, then assemble the
         final Message once a DONE event is received.
         """
-        ...
+        raise NotImplementedError("Subclasses must implement chat_stream")
 
     # ── Lifecycle ─────────────────────────────────────────────
 
     @abc.abstractmethod
     async def close(self) -> None:
         """Release any resources held by the client."""
-        ...
+        raise NotImplementedError("Subclasses must implement close")
 
     # ── Convenience: count tokens ─────────────────────────────
 

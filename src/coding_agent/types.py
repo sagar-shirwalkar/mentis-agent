@@ -605,7 +605,8 @@ class LLMProtocol(Protocol):
         tools: list[ToolSchema] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-    ) -> Message: ...
+    ) -> Message:
+        ...
 
     async def chat_stream(
         self,

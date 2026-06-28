@@ -200,7 +200,7 @@ class Verifier:
                 # Only return errors, not warnings
                 return [line for line in lines if file_path in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("pyflakes not available for %s", file_path)
 
         # Fallback: try ruff
         try:
@@ -216,7 +216,7 @@ class Verifier:
                 lines = stdout.decode().strip().split("\n")
                 return [line for line in lines if "error" in line.lower()][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("ruff not available for %s", file_path)
 
         return []
 
@@ -238,7 +238,7 @@ class Verifier:
                 lines = stdout.decode().strip().split("\n")
                 return [line for line in lines if "error TS" in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("tsc not available for %s", file_path)
         return []
 
     async def _check_rust(self, file_path: str) -> list[str]:
@@ -256,5 +256,5 @@ class Verifier:
                 lines = stdout.decode().strip().split("\n")
                 return [line for line in lines if "error" in line.lower() and file_path in line][:5]
         except (TimeoutError, FileNotFoundError):
-            pass
+            logger.warning("cargo not available for %s", file_path)
         return []

@@ -112,7 +112,7 @@ class Chunker(ABC):
         Returns:
             List of CodeChunk objects.
         """
-        ...
+        raise NotImplementedError("Subclasses must implement chunk_file")
 
     def _make_chunk(
         self,
@@ -374,8 +374,6 @@ class AstChunker(Chunker):
             "method_declaration",
             "type_declaration",  # Go
         }
-
-        _lines = content.split("\n")
 
         def visit(node: Any) -> None:
             """Recursively visit AST nodes to find definitions."""
