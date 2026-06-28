@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from coding_agent.config import TurboQuantConfig
 from coding_agent.llm.base import (
     LLMClient,
     StreamChunk,
@@ -79,8 +80,14 @@ def _ollama_tool_schemas(tools: list[ToolSchema]) -> list[dict[str, Any]]:
         props: dict[str, Any] = {}
         required: list[str] = []
         for p in t.parameters:
-            _type_map = {"str": "string", "int": "integer", "float": "number",
-                          "bool": "boolean", "list": "array", "dict": "object"}
+            _type_map = {
+                "str": "string",
+                "int": "integer",
+                "float": "number",
+                "bool": "boolean",
+                "list": "array",
+                "dict": "object",
+            }
             props[p.name] = {
                 "type": _type_map.get(p.type, p.type),
                 "description": p.description,
@@ -90,18 +97,20 @@ def _ollama_tool_schemas(tools: list[ToolSchema]) -> list[dict[str, Any]]:
             if p.required:
                 required.append(p.name)
 
-        result.append({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": props,
-                    "required": required,
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": props,
+                        "required": required,
+                    },
                 },
-            },
-        })
+            }
+        )
     return result
 
 
@@ -128,11 +137,13 @@ class LocalLLMClient(LLMClient):
         temperature: float = 0.1,
         max_tokens: int = 2048,
         timeout_seconds: float = 180.0,
+        turboquant: TurboQuantConfig | None = None,
     ) -> None:
         super().__init__(model, temperature, max_tokens)
         self.ollama_base = ollama_base.rstrip("/")
         self.mlx_model_path = mlx_model_path
         self.mlx_fallback = mlx_fallback
+        self._turboquant = turboquant
         self._backend: str = "ollama"  # "ollama" | "mlx"
         self._mlx_port: int = 0
         self._mlx_proc: subprocess.Popen[bytes] | None = None
@@ -186,17 +197,39 @@ class LocalLLMClient(LLMClient):
 
         # Find a free port
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("127.0.0.1", 0))
         self._mlx_port = sock.getsockname()[1]
         sock.close()
 
         cmd = [
-            "python3", "-m", "mlx_lm.server",
-            "--model", self.mlx_model_path or "",
-            "--port", str(self._mlx_port),
-            "--host", "127.0.0.1",
+            "python3",
+            "-m",
+            "mlx_lm.server",
+            "--model",
+            self.mlx_model_path or "",
+            "--port",
+            str(self._mlx_port),
+            "--host",
+            "127.0.0.1",
         ]
+
+        # Append TurboQuant flags if configured
+        tq = getattr(self, "_turboquant", None)
+        if tq and tq.enabled:
+            cmd.extend(
+                [
+                    "--kv-bits",
+                    str(tq.kv_bits),
+                    "--weight-bits",
+                    str(tq.weight_bits),
+                    "--sink-tokens",
+                    str(tq.sink_tokens),
+                ]
+            )
+            if tq.layer_adaptive:
+                cmd.append("--layer-adaptive")
         logger.info("Starting MLX server: %s", " ".join(str(c) for c in cmd))
         self._mlx_proc = subprocess.Popen(
             [str(c) for c in cmd],

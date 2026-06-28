@@ -124,10 +124,7 @@ class LoopDetector:
                     severity=Severity.HIGH,
                     recurring_error=normalised,
                     repeated_actions=recent[-threshold:],
-                    message=(
-                        f"Same error occurred {errors[normalised]} times: "
-                        f"{normalised[:100]}"
-                    ),
+                    message=(f"Same error occurred {errors[normalised]} times: {normalised[:100]}"),
                 )
 
         return None
@@ -154,15 +151,15 @@ class LoopDetector:
         # Check: same tool 4+ times
         for tool_name, steps in tool_counts.items():
             if len(steps) >= 4 and self._args_are_similar(steps):
-                    return LoopDetection(
-                        loop_type=LoopType.SEMANTIC_LOOP,
-                        severity=Severity.MEDIUM,
-                        repeated_actions=steps[-4:],
-                        message=(
-                            f"Tool '{tool_name}' called {len(steps)} times "
-                            f"with similar but not identical arguments"
-                        ),
-                    )
+                return LoopDetection(
+                    loop_type=LoopType.SEMANTIC_LOOP,
+                    severity=Severity.MEDIUM,
+                    repeated_actions=steps[-4:],
+                    message=(
+                        f"Tool '{tool_name}' called {len(steps)} times "
+                        f"with similar but not identical arguments"
+                    ),
+                )
 
         # Check: same file edited 3+ times
         file_edits: dict[str, int] = {}
@@ -221,9 +218,7 @@ class LoopDetector:
                 loop_type=LoopType.STALL,
                 severity=Severity.MEDIUM,
                 repeated_actions=recent[-stall_steps:],
-                message=(
-                    f"No measurable progress in the last {stall_steps} steps"
-                ),
+                message=(f"No measurable progress in the last {stall_steps} steps"),
             )
 
         return None

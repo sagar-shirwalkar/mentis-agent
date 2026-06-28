@@ -168,12 +168,16 @@ SCHEMA_READ_FILE = ToolSchema(
     parameters=[
         ToolParameter(name="path", type="str", description="File path relative to project root"),
         ToolParameter(
-            name="start_line", type="int",
-            description="First line to read (1-based)", required=False,
+            name="start_line",
+            type="int",
+            description="First line to read (1-based)",
+            required=False,
         ),
         ToolParameter(
-            name="end_line", type="int",
-            description="Last line to read (inclusive)", required=False,
+            name="end_line",
+            type="int",
+            description="Last line to read (inclusive)",
+            required=False,
         ),
     ],
     use_when="Need to see the current content of a file or a region of a file",
@@ -203,14 +207,17 @@ SCHEMA_EDIT_FILE = ToolSchema(
     parameters=[
         ToolParameter(name="path", type="str", description="File path relative to project root"),
         ToolParameter(
-            name="search", type="str",
+            name="search",
+            type="str",
             description="Exact text to find (must be unique in the file)",
         ),
         ToolParameter(name="replace", type="str", description="Replacement text"),
         ToolParameter(
-            name="regex", type="bool",
+            name="regex",
+            type="bool",
             description="Whether search is a regex pattern",
-            required=False, default="false",
+            required=False,
+            default="false",
         ),
     ],
     use_when="Modifying a specific part of an existing file",
@@ -220,18 +227,22 @@ SCHEMA_EDIT_FILE = ToolSchema(
 SCHEMA_LIST_DIRECTORY = ToolSchema(
     name="list_directory",
     description=(
-        "List files and directories at the given path. "
-        "Use to understand project structure."
+        "List files and directories at the given path. Use to understand project structure."
     ),
     parameters=[
         ToolParameter(
-            name="path", type="str",
+            name="path",
+            type="str",
             description="Directory path relative to project root",
-            required=False, default=".",
+            required=False,
+            default=".",
         ),
         ToolParameter(
-            name="recursive", type="bool",
-            description="List recursively", required=False, default="false",
+            name="recursive",
+            type="bool",
+            description="List recursively",
+            required=False,
+            default="false",
         ),
     ],
     use_when="Exploring project structure or finding where files are located",
@@ -240,28 +251,33 @@ SCHEMA_LIST_DIRECTORY = ToolSchema(
 
 SCHEMA_SEARCH_CODE = ToolSchema(
     name="search_code",
-    description=(
-        "Search for a text pattern across the codebase using ripgrep. "
-        "Supports regex."
-    ),
+    description=("Search for a text pattern across the codebase using ripgrep. Supports regex."),
     parameters=[
         ToolParameter(name="pattern", type="str", description="Search pattern (literal or regex)"),
         ToolParameter(
-            name="path", type="str",
-            description="Directory or file to search in", required=False,
+            name="path",
+            type="str",
+            description="Directory or file to search in",
+            required=False,
         ),
         ToolParameter(
-            name="file_pattern", type="str",
-            description="Glob filter e.g. *.py", required=False,
+            name="file_pattern",
+            type="str",
+            description="Glob filter e.g. *.py",
+            required=False,
         ),
         ToolParameter(
-            name="regex", type="bool",
+            name="regex",
+            type="bool",
             description="Whether pattern is a regex",
-            required=False, default="false",
+            required=False,
+            default="false",
         ),
         ToolParameter(
-            name="max_results", type="int",
-            description="Maximum number of results", required=False,
+            name="max_results",
+            type="int",
+            description="Maximum number of results",
+            required=False,
         ),
     ],
     use_when="Finding where a string, function name, or pattern appears in the codebase",
@@ -277,8 +293,10 @@ SCHEMA_FIND_SYMBOLS = ToolSchema(
     parameters=[
         ToolParameter(name="query", type="str", description="Symbol name or pattern to search for"),
         ToolParameter(
-            name="path", type="str",
-            description="File path to search in (optional)", required=False,
+            name="path",
+            type="str",
+            description="File path to search in (optional)",
+            required=False,
         ),
     ],
     use_when="Locating where a class, function, or method is defined",
@@ -298,15 +316,17 @@ SCHEMA_GET_DIAGNOSTICS = ToolSchema(
 SCHEMA_RUN_COMMAND = ToolSchema(
     name="run_command",
     description=(
-        "Execute a shell command and return its output. "
-        "Use for running tests, builds, git, etc."
+        "Execute a shell command and return its output. Use for running tests, builds, git, etc."
     ),
     parameters=[
         ToolParameter(name="command", type="str", description="Shell command to run"),
         ToolParameter(name="cwd", type="str", description="Working directory", required=False),
         ToolParameter(
-            name="timeout", type="int",
-            description="Timeout in seconds", required=False, default="30",
+            name="timeout",
+            type="int",
+            description="Timeout in seconds",
+            required=False,
+            default="30",
         ),
     ],
     use_when="Running tests, builds, linters, git operations, or any shell command",
@@ -319,8 +339,10 @@ SCHEMA_WEB_SEARCH = ToolSchema(
     parameters=[
         ToolParameter(name="query", type="str", description="Search query"),
         ToolParameter(
-            name="max_results", type="int",
-            description="Maximum results to return", required=False,
+            name="max_results",
+            type="int",
+            description="Maximum results to return",
+            required=False,
         ),
     ],
     use_when="Looking up documentation, API references, error solutions, or current information",
@@ -333,9 +355,11 @@ SCHEMA_WEB_FETCH = ToolSchema(
     parameters=[
         ToolParameter(name="url", type="str", description="URL to fetch"),
         ToolParameter(
-            name="extract", type="bool",
+            name="extract",
+            type="bool",
             description="Extract main content vs raw HTML",
-            required=False, default="true",
+            required=False,
+            default="true",
         ),
     ],
     use_when="You have a URL and need to read its content",
@@ -355,12 +379,17 @@ SCHEMA_GIT_DIFF = ToolSchema(
     description="Show changes between commits, commit and working tree, etc.",
     parameters=[
         ToolParameter(
-            name="staged", type="bool",
-            description="Show staged changes", required=False, default="false",
+            name="staged",
+            type="bool",
+            description="Show staged changes",
+            required=False,
+            default="false",
         ),
         ToolParameter(
-            name="path", type="str",
-            description="Limit to a specific path", required=False,
+            name="path",
+            type="str",
+            description="Limit to a specific path",
+            required=False,
         ),
     ],
     use_when="Reviewing what changes have been made before committing",
@@ -372,12 +401,17 @@ SCHEMA_GIT_LOG = ToolSchema(
     description="Show commit logs.",
     parameters=[
         ToolParameter(
-            name="n", type="int",
-            description="Number of commits to show", required=False, default="10",
+            name="n",
+            type="int",
+            description="Number of commits to show",
+            required=False,
+            default="10",
         ),
         ToolParameter(
-            name="path", type="str",
-            description="Limit to a specific path", required=False,
+            name="path",
+            type="str",
+            description="Limit to a specific path",
+            required=False,
         ),
     ],
     use_when="Understanding recent commit history",

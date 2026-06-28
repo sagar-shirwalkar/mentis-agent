@@ -18,7 +18,7 @@ from typing import Any
 
 from coding_agent.config import AppConfig
 from coding_agent.llm.base import LLMClient
-from coding_agent.types import Message, Plan, Role, SubTask, TaskStatus
+from coding_agent.types import Message, Phase, Plan, PlanPhase, Role, SubTask, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +37,17 @@ _FLAT_PLANNER_PROMPT = (
     "- Include likely file paths when obvious\n"
     "- Keep descriptions under 100 characters each\n"
     "- Return ONLY a JSON block, no other text\n\n"
-    "Format:\n"
-    + _BACKTICKS
-    + "json\n"
-    '{\n'
+    "Format:\n" + _BACKTICKS + "json\n"
+    "{\n"
     '  "goal": "<one-line goal>",\n'
     '  "subtasks": [\n'
     '    {"id": 1, "description": "...", "files": ["path/to/file"]},\n'
-    '    ...\n'
-    '  ],\n'
+    "    ...\n"
+    "  ],\n"
     '  "dependencies": {\n'
     '    "3": [1, 2]\n'
-    '  }\n'
-    '}\n'
-    + _BACKTICKS
-    + "\n\n"
+    "  }\n"
+    "}\n" + _BACKTICKS + "\n\n"
     "Project context:\n{context}\n\n"
     "Task: {task}\n"
 )
@@ -66,7 +62,7 @@ _TOT_DECOMPOSE_PROMPT = (
     "  - Ordering (are dependencies respected?)\n"
     "  - Risk (how likely is it to fail?)\n\n"
     "Finally, select the best strategy and output it as a JSON block "
-    "using the key \"best_plan\".\n\n"
+    'using the key "best_plan".\n\n'
     "Project context:\n{context}\n\n"
     "Task: {task}\n"
 )
@@ -88,7 +84,7 @@ _TOT_REPLAN_PROMPT = (
     "Generate TWO different approaches to complete the remaining work, "
     "starting from the failure point. For each approach, explain the "
     "key difference in strategy. Then pick the better one and output "
-    "it as a JSON block using the key \"best_plan\".\n\n"
+    'it as a JSON block using the key "best_plan".\n\n'
     "Project context:\n{context}\n"
 )
 
@@ -146,9 +142,7 @@ class Planner(ABC):
         if JSON extraction fails.
         """
         # Try to extract JSON from a fenced code block
-        json_match = re.search(
-            r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL
-        )
+        json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         json_str = json_match.group(1) if json_match else text.strip()
 
         # If the LLM used a "best_plan" key (tree-of-thought), unwrap it
@@ -229,12 +223,8 @@ class Planner(ABC):
         """Format a list of subtasks for inclusion in a prompt."""
         lines: list[str] = []
         for st in subtasks:
-            files_str = (
-                f" (files: {', '.join(st.files)})" if st.files else ""
-            )
-            lines.append(
-                f"  {st.id}. [{st.status.value}] {st.description}{files_str}"
-            )
+            files_str = f" (files: {', '.join(st.files)})" if st.files else ""
+            lines.append(f"  {st.id}. [{st.status.value}] {st.description}{files_str}")
         return "\n".join(lines)
 
 
@@ -276,14 +266,8 @@ class FlatPlanner(Planner):
         Completed subtasks are preserved; only pending/failed ones
         may change.
         """
-        completed = [
-            st for st in existing_plan.subtasks
-            if st.status == TaskStatus.COMPLETED
-        ]
-        pending = [
-            st for st in existing_plan.subtasks
-            if st.status != TaskStatus.COMPLETED
-        ]
+        completed = [st for st in existing_plan.subtasks if st.status == TaskStatus.COMPLETED]
+        pending = [st for st in existing_plan.subtasks if st.status != TaskStatus.COMPLETED]
 
         prompt = _REPLAN_PROMPT.format(
             failed_id=failed_subtask_id,
@@ -294,9 +278,7 @@ class FlatPlanner(Planner):
         )
 
         messages = [Message(role=Role.USER, content=prompt)]
-        response = await self.llm.chat(
-            messages=messages, temperature=0.4, max_tokens=1024
-        )
+        response = await self.llm.chat(messages=messages, temperature=0.4, max_tokens=1024)
 
         new_partial = self._parse_plan_response(response.content)
 
@@ -354,10 +336,7 @@ class TreeOfThoughtPlanner(Planner):
         Replan using tree-of-thought: generate multiple alternative
         approaches to the failed subtask and pick the best one.
         """
-        completed = [
-            st for st in existing_plan.subtasks
-            if st.status == TaskStatus.COMPLETED
-        ]
+        completed = [st for st in existing_plan.subtasks if st.status == TaskStatus.COMPLETED]
 
         prompt = _TOT_REPLAN_PROMPT.format(
             failed_id=failed_subtask_id,
@@ -367,9 +346,7 @@ class TreeOfThoughtPlanner(Planner):
         )
 
         messages = [Message(role=Role.USER, content=prompt)]
-        response = await self.llm.chat(
-            messages=messages, temperature=0.5, max_tokens=2048
-        )
+        response = await self.llm.chat(messages=messages, temperature=0.5, max_tokens=2048)
 
         new_partial = self._parse_plan_response(response.content)
 
@@ -386,3 +363,206 @@ class TreeOfThoughtPlanner(Planner):
 
         existing_plan.subtasks = merged_subtasks
         return existing_plan
+
+
+# ──────────────────────────────────────────────────────────────
+# Hierarchical planner (multi-stage, for complex tasks)
+# ──────────────────────────────────────────────────────────────
+
+_STRATEGIC_PROMPT = """\
+You are a strategic task planner for a coding agent.
+
+Decompose the following task into 3-7 high-level phases. Each phase \
+should represent a major stage of work.
+
+Rules:
+- Each phase should be a concrete, measurable stage
+- Order phases so earlier ones don't depend on later ones
+- Include likely file paths when obvious
+- Keep phase names short (under 50 chars)
+- Return ONLY a JSON block, no other text
+
+Format:
+```json
+{{
+  "goal": "<one-line goal>",
+  "phases": [
+    {{"id": 1, "name": "Discover & Explore", "description": "Map the codebase"}},
+    {{"id": 2, "name": "Implement Core", "description": "Write the main implementation"}},
+    ...
+  ]
+}}
+```
+
+Project context:
+{context}
+
+Task: {task}
+"""
+
+_TACTICAL_PROMPT = """\
+You are a tactical task planner for a coding agent.
+
+Given the following strategic phase of a larger project, decompose it \
+into concrete subtasks. Each subtask should be a single coding action.
+
+Phase: #{phase_id} — {phase_name}
+Description: {phase_description}
+
+Rules:
+- Each subtask should be a single, concrete coding action
+- Order them so earlier subtasks don't depend on later ones
+- Include likely file paths when obvious
+- Keep descriptions under 100 characters each
+- Return ONLY a JSON block, no other text
+
+Format:
+```json
+{{
+  "subtasks": [
+    {{"id": 1, "description": "...", "files": ["path/to/file"]}},
+    ...
+  ],
+  "dependencies": {{"3": [1, 2]}}
+}}
+```
+
+Project context:
+{context}
+"""
+
+
+class HierarchicalPlanner(Planner):
+    """
+    Multi-stage planner with strategic and tactical layers.
+
+    Produces a Plan with 3-7 strategic phases.  Each phase contains
+    a tactical sub-plan with concrete subtasks.
+
+    When a phase fails, only that phase is re-planned (keeping the
+    strategic structure intact).
+    """
+
+    async def plan(self, task: str, context_summary: str) -> Plan:
+        prompt = _STRATEGIC_PROMPT.format(task=task, context=context_summary)
+        messages = [Message(role=Role.USER, content=prompt)]
+
+        response = await self.llm.chat(
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2048,
+        )
+
+        plan = self._parse_strategic_response(response.content, task)
+
+        if plan.phases:
+            first_phase = plan.phases[0]
+            plan = await self._tactical_for_phase(plan, first_phase, context_summary)
+
+        return plan
+
+    async def replan(
+        self,
+        existing_plan: Plan,
+        failed_subtask_id: int,
+        reason: str,
+        context_summary: str,
+    ) -> Plan:
+        failed_phase = None
+        for ph in existing_plan.phases:
+            if ph.plan and any(
+                st.id == failed_subtask_id or st.status == TaskStatus.FAILED
+                for st in ph.plan.subtasks
+            ):
+                failed_phase = ph
+                break
+
+        if failed_phase is None:
+            return await FlatPlanner(self.llm, self.config).replan(
+                existing_plan,
+                failed_subtask_id,
+                reason,
+                context_summary,
+            )
+
+        failed_phase.status = PlanPhase.RETRY
+
+        return await self._tactical_for_phase(
+            existing_plan,
+            failed_phase,
+            context_summary,
+            reason=reason,
+        )
+
+    async def _tactical_for_phase(
+        self,
+        plan: Plan,
+        phase: Phase,
+        context_summary: str,
+        reason: str = "",
+    ) -> Plan:
+        prompt_parts = f"Reason for revision: {reason}\n\n" if reason else ""
+        prompt = (
+            _TACTICAL_PROMPT.format(
+                phase_id=phase.id,
+                phase_name=phase.name,
+                phase_description=phase.description,
+                context=context_summary,
+            )
+            + prompt_parts
+        )
+
+        messages = [Message(role=Role.USER, content=prompt)]
+        response = await self.llm.chat(
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1024,
+        )
+
+        tactical = self._parse_tactical_response(response.content)
+        phase.plan = tactical
+
+        for i, ph in enumerate(plan.phases):
+            if ph.id == phase.id:
+                plan.phases[i] = phase
+                break
+
+        if plan.current_phase_idx < 0:
+            plan.advance_phase()
+
+        return plan
+
+    def _parse_strategic_response(self, text: str, task: str) -> Plan:
+        json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+        json_str = json_match.group(1) if json_match else text.strip()
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            return Plan(
+                goal=task[:100],
+                phases=[
+                    Phase(id=1, name="Execute", description=task[:200]),
+                ],
+            )
+
+        phases: list[Phase] = []
+        for ph_raw in data.get("phases", []):
+            phases.append(
+                Phase(
+                    id=ph_raw.get("id", len(phases) + 1),
+                    name=ph_raw.get("name", f"Phase {len(phases) + 1}"),
+                    description=ph_raw.get("description", ""),
+                )
+            )
+
+        if not phases:
+            phases.append(Phase(id=1, name="Execute", description=task[:200]))
+
+        return Plan(
+            goal=data.get("goal", task[:100]),
+            phases=phases,
+        )
+
+    def _parse_tactical_response(self, text: str) -> Plan:
+        return self._parse_plan_response(text)

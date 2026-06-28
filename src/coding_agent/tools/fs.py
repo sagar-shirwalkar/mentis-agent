@@ -328,8 +328,15 @@ class FsTools(ToolExecutor):
         output_lines: list[str] = []
         # Respect common ignore patterns
         ignore_dirs = {
-            ".git", "__pycache__", "node_modules", ".mypy_cache",
-            ".pytest_cache", ".tox", ".venv", "venv", ".agent",
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".tox",
+            ".venv",
+            "venv",
+            ".agent",
         }
         ignore_exts = {".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe"}
 

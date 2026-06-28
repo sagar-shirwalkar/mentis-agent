@@ -26,23 +26,32 @@ import logging
 import time
 from typing import Any
 
-from coding_agent.agent.planner import FlatPlanner, Planner, TreeOfThoughtPlanner
+from coding_agent.agent.planner import (
+    FlatPlanner,
+    HierarchicalPlanner,
+    Planner,
+    TreeOfThoughtPlanner,
+)
 from coding_agent.agent.verifier import Verifier
 from coding_agent.config import AppConfig
 from coding_agent.context.budget import TokenBudget
+from coding_agent.context.compactor import ContextCompactor
 from coding_agent.context.manager import ContextManager
 from coding_agent.llm.base import LLMClient, StreamEvent
 from coding_agent.memory.store import MemoryStore
 from coding_agent.rag.retriever import Retriever
 from coding_agent.recovery.detector import LoopDetector
+from coding_agent.recovery.meta_thinker import MetaThinker
 from coding_agent.recovery.strategies import LoopRecovery
 from coding_agent.tools.base import ToolRegistry
 from coding_agent.tools.router import ToolRouter
 from coding_agent.types import (
     AgentState,
     Message,
+    PlanPhase,
     RecoveryAction,
     Role,
+    RuntimeTier,
     Step,
     ToolCall,
     ToolResult,
@@ -114,6 +123,12 @@ class AgentCore:
         # Mutable state
         self.state = AgentState(task=task)
 
+        # Runtime tier for graceful degradation
+        self._tier: RuntimeTier = RuntimeTier.LARGE
+
+        # Context compactor (ACC)
+        self._compactor: ContextCompactor | None = None
+
         # Subsystems — initialised in start() to allow async setup
         self._planner: Planner | None = None
         self._verifier: Verifier | None = None
@@ -151,7 +166,9 @@ class AgentCore:
         )
 
         # Planner
-        if cfg.agent.planner_type == "tree_of_thought":
+        if cfg.agent.planner_type == "hierarchical":
+            self._planner = HierarchicalPlanner(llm=self.llm, config=cfg)
+        elif cfg.agent.planner_type == "tree_of_thought":
             self._planner = TreeOfThoughtPlanner(llm=self.llm, config=cfg)
         else:
             self._planner = FlatPlanner(llm=self.llm, config=cfg)
@@ -161,6 +178,9 @@ class AgentCore:
 
         # Context manager
         self._context = ContextManager(config=cfg, budget=self._budget)
+
+        # Adaptive context compactor
+        self._compactor = ContextCompactor(cfg.context.compaction)
 
         # Tools
         self._tools = ToolRegistry(config=cfg)
@@ -185,6 +205,11 @@ class AgentCore:
         self._recovery_detector = LoopDetector(config=cfg.recovery)
         self._recovery_strategies = LoopRecovery(llm=self.llm, config=cfg)
 
+        # Meta-Thinker monitor
+        self._meta_thinker = MetaThinker(
+            progress_stall_threshold=cfg.recovery.stall_steps,
+        )
+
         # Build initial plan
         self.state.plan = await self._planner.plan(self.task, self._context_summary())
 
@@ -194,14 +219,35 @@ class AgentCore:
 
         # Load cross-session memories relevant to this task
         if self._memory:
+            # 1. Load AGENTS.md into procedural memory
+            self._memory.load_agents_md()
+
+            # 2. Compact old checkpoints (if last compaction >7 days ago)
+            self._memory.compact_checkpoints(max_age_days=90)
+
+            # 3. Load relevant episodic + semantic memories
             memories = self._memory.recall_relevant(self.task)
             if memories:
-                self._messages.append(Message(
-                    role=Role.SYSTEM,
-                    content=f"[Project Knowledge]\n{memories}",
-                ))
+                self._messages.append(
+                    Message(
+                        role=Role.SYSTEM,
+                        content=f"[Project Knowledge]\n{memories}",
+                    )
+                )
 
-        logger.info("Agent initialised: %d subtasks planned", len(self.state.plan.subtasks))
+        # Detect initial tier from config profile
+        if cfg.context.max_tokens <= 64000:
+            self._tier = RuntimeTier.MID
+        if cfg.context.max_tokens <= 32000:
+            self._tier = RuntimeTier.SMALL
+        if cfg.tools.router.strategy == "rules_only":
+            self._tier = RuntimeTier.SMALL
+
+        logger.info(
+            "Agent initialised: %d subtasks planned, tier=%s",
+            len(self.state.plan.subtasks),
+            self._tier,
+        )
 
     async def stop(self) -> None:
         """Tear down subsystems and save learnings."""
@@ -235,28 +281,74 @@ class AgentCore:
         max_steps = self.config.agent.max_steps
 
         while self.state.step_count < max_steps:
-            # 1. Advance to next subtask if current one is done
-            if self.state.plan and self.state.plan.current_subtask is None:
-                next_sub = self.state.plan.advance()
-                if next_sub is None:
-                    # All subtasks completed
-                    logger.info("All subtasks completed")
-                    return True
-                logger.info("Advancing to subtask %d: %s", next_sub.id, next_sub.description)
-                # Inject subtask context
-                self._messages.append(Message(
-                    role=Role.SYSTEM,
-                    content=f"Now working on subtask #{next_sub.id}: {next_sub.description}",
-                ))
+            # 1. Advance to next subtask / phase if needed
+            if self.state.plan:
+                if self.state.plan.is_hierarchical:
+                    # Hierarchical mode: check phase transitions
+                    phase = self.state.plan.current_phase
+                    if phase is None:
+                        # No active phase — advance to next
+                        phase = self.state.plan.advance_phase()
+                        if phase is None:
+                            logger.info("All phases completed")
+                            return True
+                        logger.info("Starting phase %d: %s", phase.id, phase.name)
+                        self._messages.append(
+                            Message(
+                                role=Role.SYSTEM,
+                                content=(
+                                    f"Starting phase #{phase.id}: "
+                                    f"{phase.name} — {phase.description}"
+                                ),
+                            )
+                        )
 
-            # 2. Check budget
-            emergency = self.config.context.emergency_fraction
-            if self._budget and self._budget.remaining_fraction() < emergency:
-                logger.warning(
-                    "Context budget critically low (%.1f%% remaining), forcing compression",
-                    self._budget.remaining_fraction() * 100,
-                )
-                await self._emergency_compression()
+                    subtask = None
+                    if phase and phase.plan:
+                        subtask = phase.plan.current_subtask
+                        if subtask is None:
+                            subtask = phase.plan.advance()
+
+                    if subtask is None and phase:
+                        phase.status = PlanPhase.COMPLETED
+                        self.state.plan.current_phase_idx = -1
+                        continue
+                else:
+                    # Flat mode: advance through subtasks
+                    if self.state.plan.current_subtask is None:
+                        next_sub = self.state.plan.advance()
+                        if next_sub is None:
+                            logger.info("All subtasks completed")
+                            return True
+                        logger.info(
+                            "Advancing to subtask %d: %s",
+                            next_sub.id,
+                            next_sub.description,
+                        )
+                        self._messages.append(
+                            Message(
+                                role=Role.SYSTEM,
+                                content=(
+                                    f"Now working on subtask #{next_sub.id}: {next_sub.description}"
+                                ),
+                            )
+                        )
+
+            # 2. Check budget — ACC staged compaction + tier degradation
+            if self._budget:
+                remaining = self._budget.remaining_fraction()
+                if remaining < 0.10 and self._tier == RuntimeTier.LARGE:
+                    logger.warning("Degrading tier: LARGE → MID (budget=%.1f%%)", remaining * 100)
+                    self._tier = RuntimeTier.MID
+                    self._apply_tier()
+                if remaining < 0.05 and self._tier == RuntimeTier.MID:
+                    logger.warning("Degrading tier: MID → SMALL (budget=%.1f%%)", remaining * 100)
+                    self._tier = RuntimeTier.SMALL
+                    self._apply_tier()
+
+                # ACC: staged context compaction
+                if self._compactor:
+                    self._messages = self._compactor.compact(self._messages, remaining)
 
             # 3. Execute one step
             step = await self._execute_step()
@@ -291,7 +383,29 @@ class AgentCore:
             # Successful step resets recovery counter
             self._recovery_attempts = 0
 
-            # 6. Post-step: verification
+            # 6. Post-step: Meta-Thinker evaluation
+            if self._meta_thinker and self._budget:
+                mt_result = self._meta_thinker.evaluate(
+                    step, self.state, self._budget.remaining_fraction()
+                )
+                if mt_result.signal.value in ("interrupt", "fallback"):
+                    logger.info(
+                        "Meta-Thinker %s: %s",
+                        mt_result.signal.value,
+                        mt_result.reason,
+                    )
+                    if mt_result.suggestion:
+                        self._messages.append(
+                            Message(
+                                role=Role.SYSTEM,
+                                content=(
+                                    f"[Meta-Thinker {mt_result.signal.value}] "
+                                    f"{mt_result.suggestion}"
+                                ),
+                            )
+                        )
+
+            # 7. Post-step: verification
             if self._verifier:
                 verification = await self._verifier.verify(step, self.state)
                 if not verification.passed:
@@ -300,10 +414,12 @@ class AgentCore:
                         f"⚠️ Verification issue: {verification.message}"
                         "\nPlease fix this before proceeding."
                     )
-                    self._messages.append(Message(
-                        role=Role.SYSTEM,
-                        content=content,
-                    ))
+                    self._messages.append(
+                        Message(
+                            role=Role.SYSTEM,
+                            content=content,
+                        )
+                    )
 
             # 7. Checkpoint
             if self.state.step_count % self.config.agent.checkpoint_every_n_steps == 0:
@@ -407,12 +523,14 @@ class AgentCore:
         result = self._router.post_execute(call, result, self.state)
 
         # Record tool result in conversation
-        self._messages.append(Message(
-            role=Role.TOOL,
-            content=result.output,
-            tool_call_id=call.id,
-            name=call.name,
-        ))
+        self._messages.append(
+            Message(
+                role=Role.TOOL,
+                content=result.output,
+                tool_call_id=call.id,
+                name=call.name,
+            )
+        )
 
         # Update state tracking
         if call.name in ("edit_file", "write_file"):
@@ -454,6 +572,23 @@ class AgentCore:
 
         return Message(role=Role.SYSTEM, content=content)
 
+    # ── Tier management ───────────────────────────────────────
+
+    def _apply_tier(self) -> None:
+        """Adjust subsystems when the runtime tier changes."""
+        tier = self._tier
+        logger.info("Applying tier: %s", tier)
+
+        # Adjust budget if needed
+        if self._budget and tier == RuntimeTier.SMALL:
+            self._budget.max_fraction_per_step = 0.05
+
+        # Inject a system message so the LLM knows resource constraints
+        if self._budget:
+            frac = self._budget.remaining_fraction()
+            msg = f"[Resource constraint: tier={tier}, budget={frac:.0%} remaining]"
+            self._messages.append(Message(role=Role.SYSTEM, content=msg))
+
     # ── Context helpers ───────────────────────────────────────
 
     def _context_summary(self) -> str:
@@ -480,8 +615,10 @@ class AgentCore:
         assert self._context is not None
         assert self._budget is not None
 
-        logger.warning("Emergency compression triggered at %.1f%% remaining",
-                       self._budget.remaining_fraction() * 100)
+        logger.warning(
+            "Emergency compression triggered at %.1f%% remaining",
+            self._budget.remaining_fraction() * 100,
+        )
 
         # Strategy 1: context manager compression
         self._context.emergency_compress()
@@ -518,28 +655,36 @@ class AgentCore:
     def _apply_recovery(self, action: RecoveryAction) -> None:
         """Inject a recovery intervention into the conversation."""
         if action.inject_message:
-            self._messages.append(Message(
-                role=Role.SYSTEM,
-                content=action.inject_message,
-            ))
+            self._messages.append(
+                Message(
+                    role=Role.SYSTEM,
+                    content=action.inject_message,
+                )
+            )
 
         if action.reset_working_memory and self._context:
             self._context.reset_working()
 
         if action.force_user_intervention:
-            self._messages.append(Message(
-                role=Role.SYSTEM,
-                content=(
-                    "The agent is stuck. Consider providing additional guidance "
-                    "or simplifying the task."
-                ),
-            ))
+            self._messages.append(
+                Message(
+                    role=Role.SYSTEM,
+                    content=(
+                        "The agent is stuck. Consider providing additional guidance "
+                        "or simplifying the task."
+                    ),
+                )
+            )
 
     # ── Checkpoint ────────────────────────────────────────────
 
+    _session_id: str = ""
+
     def _checkpoint(self) -> None:
-        """Save a lightweight checkpoint of the agent state."""
-        logger.info("Checkpoint at step %d (tokens used: %d)",
-                     self.state.step_count, self.state.total_tokens_used)
-        # In a full implementation, this would serialise state to disk.
-        # For now, we just log.
+        """Save a lightweight checkpoint of the agent state to disk."""
+        if not self._memory:
+            logger.info("Checkpoint skipped (no memory store): step %d", self.state.step_count)
+            return
+        if not self._session_id:
+            self._session_id = f"session_{int(time.time())}_{id(self)}"
+        self._memory.checkpoint_save(self.state, session_id=self._session_id)

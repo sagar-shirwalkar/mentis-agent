@@ -200,10 +200,13 @@ class RemoteLLMClient(LLMClient):
             try:
                 resp = await self._http.post(path, json=payload)
                 if resp.status_code in _RETRYABLE_STATUS:
-                    wait = _BACKOFF_BASE ** attempt
+                    wait = _BACKOFF_BASE**attempt
                     logger.warning(
                         "LLM API %d, retry %d/%d in %.1fs",
-                        resp.status_code, attempt + 1, _MAX_RETRIES, wait,
+                        resp.status_code,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        wait,
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -213,15 +216,25 @@ class RemoteLLMClient(LLMClient):
                 if exc.response.status_code not in _RETRYABLE_STATUS:
                     raise
                 last_exc = exc
-                wait = _BACKOFF_BASE ** attempt
-                logger.warning("LLM API error %d, retry %d/%d in %.1fs",
-                               exc.response.status_code, attempt + 1, _MAX_RETRIES, wait)
+                wait = _BACKOFF_BASE**attempt
+                logger.warning(
+                    "LLM API error %d, retry %d/%d in %.1fs",
+                    exc.response.status_code,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    wait,
+                )
                 await asyncio.sleep(wait)
             except (httpx.ConnectError, httpx.ReadTimeout) as exc:
                 last_exc = exc
-                wait = _BACKOFF_BASE ** attempt
-                logger.warning("LLM connection error, retry %d/%d in %.1fs: %s",
-                               attempt + 1, _MAX_RETRIES, wait, exc)
+                wait = _BACKOFF_BASE**attempt
+                logger.warning(
+                    "LLM connection error, retry %d/%d in %.1fs: %s",
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    wait,
+                    exc,
+                )
                 await asyncio.sleep(wait)
 
         raise RuntimeError(f"LLM API failed after {_MAX_RETRIES} retries") from last_exc

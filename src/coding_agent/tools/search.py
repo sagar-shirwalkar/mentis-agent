@@ -416,14 +416,17 @@ class SearchTools(ToolExecutor):
     async def _diag_python(self, path: Path) -> str:
         """Run Python diagnostics (ruff or pyflakes)."""
         # Try ruff first (faster, more comprehensive)
-        for tool in [("ruff", ["ruff", "check", "--output-format=concise"]),
-                      ("pyflakes", ["python3", "-m", "pyflakes"])]:
+        for tool in [
+            ("ruff", ["ruff", "check", "--output-format=concise"]),
+            ("pyflakes", ["python3", "-m", "pyflakes"]),
+        ]:
             name, base_cmd = tool
             if not shutil.which(name):
                 continue
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    *base_cmd, str(path),
+                    *base_cmd,
+                    str(path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(self.workdir),
@@ -440,7 +443,11 @@ class SearchTools(ToolExecutor):
         """Run TypeScript diagnostics (tsc --noEmit)."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "npx", "tsc", "--noEmit", "--pretty", "false",
+                "npx",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workdir),
@@ -449,8 +456,7 @@ class SearchTools(ToolExecutor):
             output = stdout.decode(errors="replace").strip()
             # Filter to only errors related to our file
             relevant = [
-                line for line in output.split("\n")
-                if str(path) in line or path.name in line
+                line for line in output.split("\n") if str(path) in line or path.name in line
             ]
             return "\n".join(relevant[:10])
         except (TimeoutError, FileNotFoundError):
@@ -460,7 +466,9 @@ class SearchTools(ToolExecutor):
         """Run Rust diagnostics (cargo check)."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "cargo", "check", "--message-format=short",
+                "cargo",
+                "check",
+                "--message-format=short",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workdir),
@@ -476,7 +484,9 @@ class SearchTools(ToolExecutor):
         """Run Go diagnostics (go vet)."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "go", "vet", str(path),
+                "go",
+                "vet",
+                str(path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workdir),

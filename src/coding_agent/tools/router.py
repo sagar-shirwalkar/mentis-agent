@@ -104,9 +104,7 @@ class ToolRouter:
 
         # Git tools (add after a few steps or when explicitly needed)
         if state and (
-            state.step_count > 3
-            or "git" in state.task.lower()
-            or "commit" in state.task.lower()
+            state.step_count > 3 or "git" in state.task.lower() or "commit" in state.task.lower()
         ):
             tools.extend(_GIT_TOOLS)
 

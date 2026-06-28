@@ -4,6 +4,23 @@
 > Items marked ⚠️ are pre-print or have limited replication evidence.
 > Items marked ✅ have strong empirical support across multiple evaluations.
 
+## Table of Contents
+- [1. Orchard — Microsoft's Open-Source Agentic Modeling Framework](#1-orchard--microsofts-open-source-agentic-modeling-framework)
+- [2. COMPASS — Context-Organized Multi-Agent Planning](#2-compass--context-organized-multi-agent-planning)
+- [3. TodoEvolve — Learning to Architect Planning Systems](#3-todoevolve--learning-to-architect-planning-systems)
+- [4. AdaPlan-H — Self-Adaptive Hierarchical Planning](#4-adaplan-h--self-adaptive-hierarchical-planning)
+- [5. ReAcTree — Hierarchical LLM Agent Trees](#5-reactree--hierarchical-llm-agent-trees)
+- [6. MPO — Meta Plan Optimization](#6-mpo--meta-plan-optimization)
+- [7. AdaCache — Adaptive Caching for LLM Agents](#7-adacache--adaptive-caching-for-llm-agents)
+- [8. Anthropic MEMORY.md Pattern](#8-anthropic-memorymd-pattern)
+- [9. Zed ACP Integration](#9-zed-acp-integration)
+- [10. TurboQuant — Near-Optimal KV Cache Compression](#10-turboquant--near-optimal-kv-cache-compression)
+- [11. ZoomRAG — Hierarchical Random-Walk Zooming](#11-zoomrag--hierarchical-random-walk-zooming)
+- [12. Claude Code Context Compaction Pipeline](#12-claude-code-context-compaction-pipeline)
+- [13. PyCodeKG — Deterministic AST Code Graph](#13-pycodekg--deterministic-ast-code-graph)
+- [14. VelociRAG — ONNX-Powered Lightweight RAG](#14-velocirag--onnx-powered-lightweight-rag)
+- [Summary: Innovation Adoption Map](#summary-innovation-adoption-map)
+
 ---
 
 ## 1. Orchard — Microsoft's Open-Source Agentic Modeling Framework ✅
@@ -212,11 +229,101 @@ TurboQuant is a data-oblivious vector quantization framework that compresses LLM
 - Community PyTorch and Triton implementations available
 - MLX integration for Apple Silicon
 
-**Relevance:** Two direct applications for agent systems:
-1. **Long-context inference** — TurboQuant enables agents to sustain 128K+ token contexts on consumer hardware (RTX 4090, Apple Silicon) by compressing the KV cache 3-6×. This directly impacts the context window budget — local-model agents (currently 32K in `local_model.yaml`) could double or triple their effective context without hardware upgrades.
-2. **Vector search compression** — the same algorithm serves as a drop-in replacement for Product Quantization in RAG pipelines. Data-oblivious means zero indexing time (no k-means training), making it ideal for dynamic codebase indexing.
+**MLX Ecosystem (5+ implementations):**
+
+| Implementation | Scope | Key Feature |
+|---|---|---|
+| manjunathshiva/turboquant-mlx | KV cache | Mixed K8/V3, sink protection |
+| chiuweilun1107/turboquant-mlx | KV cache | Fused Metal kernels, layer-adaptive |
+| arozanov/turboquant-mlx | KV cache + server | Disk persistence, MoE support |
+| rachittshah/mlx-turboquant | KV cache | Standalone PoC, all bit widths |
+| ediestel/turboquant-plus-mlx | KV cache | Adaptive bits, temporal decay |
+| matt-k-wong/turboquant-mlx-full | **Weights + KV** | 32B on 16GB MacBook Air |
+
+**Relevance to Meredith (Apple Silicon M5 Pro 24GB):**
+1. **local_model.yaml upgrade**: enables 27B-32B models that wouldn't otherwise fit
+2. **Longer local context**: KV compression extends effective context from 32K→~96K with same memory budget
+3. **Vector search compression**: same algorithm replaces Product Quantization in RAG — zero calibration data needed
 
 **Risk/Reward:** ✅ Low risk — ICLR-published, vLLM-merged, community implementations available. High reward for agents running on constrained hardware.
+
+
+
+---
+
+## 11. ZoomRAG — Hierarchical Random-Walk Zooming ✅
+
+**Source:** ACL 2026 Findings.
+**Venue:** ACL 2026 (Findings volume).
+
+Coarse-to-fine hierarchical graph retrieval:
+- **Coarse level**: global relational graph → query-initiated random walk → quickly locate relevant documents
+- **Fine level**: zoom into selected documents → second random walk → pinpoint salient evidence chunks
+- **Algorithm-parallel** variant handles concurrent queries
+
+**Key results:**
+- 2.2-4.9% absolute accuracy gains over SOTA RAG models
+- Average online retrieval latency: **0.019s per query** (concurrent)
+- Avoids building expensive knowledge graphs
+
+**Relevance:** The coarse-to-fine hierarchy is the key insight. For code ASTs (DAGs with bounded fan-out), BFS from vector seed hits is simpler and likely as effective for typical project-scale queries. ZoomRAG is relevant for monorepo-scale code.
+
+**Risk/Reward:** ✅ Low risk — ACL-published, concurrent-ready. Medium reward — BFS from seeds covers most code queries without full RWR infrastructure.
+
+---
+
+## 12. Claude Code Context Compaction Pipeline ✅
+
+**Source:** Open-source codebase + documentation (2026).
+**Status:** Production, 3,960 lines TypeScript across `src/services/compact/`.
+
+Five graduated tiers, cheapest-first:
+
+| Tier | Trigger | Action |
+|---|---|---|
+| Budget Reduction | Every turn | Cap tool outputs per-zone |
+| Snip | Token pressure | Drop low-value results, protect head/tail |
+| Microcompact | Cache-aware | Two paths: hot cache = `cache_edits`, cold = truncation |
+| Context Collapse | ~90% | Reversible read-time projection; original messages preserved |
+| Autocompact | ~167K/200K | Fork sub-agent, LLM summary, post-compaction rehydration |
+
+**Key innovations:**
+- Cache-aware dual paths (same goal, different strategy by cache state)
+- Two-phase CoT summarization (reasoning consumed, conclusion preserved)
+- Compaction as transaction: prepare → summarize → clear stale → restore → continue
+- Post-compact rehydration: restore max 5 files, plan state, skills, tool states
+
+**Risk/Reward:** ✅ Low risk — proven in production. High reward — direct reference implementation for Meredith's ACC.
+
+---
+
+## 13. PyCodeKG — Deterministic AST Code Graph ✅
+
+**Source:** Open-source (2026).
+**Status:** Production, MIT license.
+
+Python codebase → deterministic knowledge graph via AST parsing:
+- Edge types: CONTAINS, CALLS, IMPORTS, INHERITS, RESOLVES_TO
+- Two-phase search: vector → BFS graph expansion from seed hits
+- Structure is ground truth; embeddings are acceleration layer only
+- SQLite + optional vector DB (LanceDB)
+
+**Risk/Reward:** ✅ Low risk — pure AST, no LLM dependency. High reward for multi-hop structural code queries.
+
+---
+
+## 14. VelociRAG — ONNX-Powered Lightweight RAG ✅
+
+**Source:** Open-source (2026).
+**Status:** Production, 3.7K+ stars.
+
+Four-layer retrieval fusion with zero PyTorch dependency:
+- FAISS vector similarity + SQLite FTS5 (BM25) + knowledge graph + metadata filtering
+- Cross-encoder reranker (TinyBERT via ONNX Runtime)
+- ~80MB total, <1GB RAM, MCP server included
+- Sub-200ms warm search, incremental indexing
+
+**Risk/Reward:** ✅ Low risk — ONNX eliminates PyTorch dependency. High reward for adding semantic search without infrastructure overhead.
 
 ---
 
@@ -226,8 +333,12 @@ TurboQuant is a data-oblivious vector quantization framework that compresses LLM
 |------------|----------|----------|------|
 | COMPASS | Agent loop (Meta-Thinker + Context Manager) | High | Low |
 | MEMORY.md | Memory module (procedural/episodic/semantic) | High | Low |
-| TurboQuant | Context budget (KV cache compression for long-context on constrained hardware) | High | Low |
+| TurboQuant | KV cache compression for Apple Silicon (27B-32B on 24GB) | High | Low |
+| Claude Code ACC | Context compaction (5-tier staged pipeline) | High | Low |
+| VelociRAG | Lightweight RAG stack (ONNX, no PyTorch) | High | Low |
+| PyCodeKG | Deterministic AST graph for code queries | High | Low |
 | AdaCache | RAG pipeline (confidence-based retrieval) | Medium | Low |
+| ZoomRAG | Hierarchical random-walk graph zoom | Medium | Low |
 | ReAcTree | Planning (agent tree + control flow) | Medium | Low |
 | MPO | Planning (meta-plan optimization loop) | Medium | Low |
 | AdaPlan-H | Planning (adaptive granularity) | Low | Medium |

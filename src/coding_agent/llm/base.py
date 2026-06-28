@@ -122,9 +122,7 @@ def parse_tool_calls_from_response(
         except json.JSONDecodeError:
             # Partial JSON from streaming — best effort
             arguments = {"_raw": raw_args}
-        calls.append(
-            ToolCall(id=call_id, name=data.get("name", ""), arguments=arguments)
-        )
+        calls.append(ToolCall(id=call_id, name=data.get("name", ""), arguments=arguments))
     return calls
 
 

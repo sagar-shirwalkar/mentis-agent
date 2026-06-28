@@ -51,11 +51,13 @@ def _normalise_brave_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Brave Search API response."""
     hits: list[_SearchHit] = []
     for item in data.get("web", {}).get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("description", ""),
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("description", ""),
+            )
+        )
     return hits
 
 
@@ -63,11 +65,13 @@ def _normalise_tavily_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Tavily API response."""
     hits: list[_SearchHit] = []
     for item in data.get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("content", ""),
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("content", ""),
+            )
+        )
     return hits
 
 
@@ -75,11 +79,13 @@ def _normalise_exa_results(data: dict[str, Any]) -> list[_SearchHit]:
     """Parse Exa API response."""
     hits: list[_SearchHit] = []
     for item in data.get("results", []):
-        hits.append(_SearchHit(
-            title=item.get("title", ""),
-            url=item.get("url", ""),
-            snippet=item.get("text", "")[:300],
-        ))
+        hits.append(
+            _SearchHit(
+                title=item.get("title", ""),
+                url=item.get("url", ""),
+                snippet=item.get("text", "")[:300],
+            )
+        )
     return hits
 
 
@@ -221,9 +227,7 @@ class WebTools(ToolExecutor):
                 error="empty_query",
             )
 
-        max_results = call.arguments.get(
-            "max_results", self.config.tools.web.max_results
-        )
+        max_results = call.arguments.get("max_results", self.config.tools.web.max_results)
         backend = self.config.tools.web.backend
 
         try:

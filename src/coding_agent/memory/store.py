@@ -13,10 +13,12 @@ at the end with new learnings.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -226,8 +228,10 @@ class MemoryStore:
                     error_step = step
                     break
                 if (
-                    step.tool_result and step.tool_result.success
-                    and step.tool_call and step.tool_call.name in ("edit_file", "write_file")
+                    step.tool_result
+                    and step.tool_result.success
+                    and step.tool_call
+                    and step.tool_call.name in ("edit_file", "write_file")
                 ):
                     success_after_error = True
 
@@ -284,6 +288,130 @@ class MemoryStore:
             i += count
 
         return " → ".join(compressed[:12])
+
+    # ── Checkpoint serialization ──────────────────────────────
+
+    @property
+    def checkpoint_dir(self) -> Path:
+        return self.workdir / ".agent" / "checkpoints"
+
+    def checkpoint_save(self, state: AgentState, session_id: str | None = None) -> str:
+        """
+        Save an agent state checkpoint to disk.
+
+        Args:
+            state: Current agent state to serialize.
+            session_id: Optional session ID. Auto-generated if not provided.
+
+        Returns:
+            The session ID used for the checkpoint file.
+        """
+        sid = session_id or str(uuid.uuid4())
+        chk_dir = self.checkpoint_dir
+        chk_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build a one-line summary of the last step
+        summary = ""
+        if state.steps:
+            summary = state.steps[-1].summary(200)
+
+        data = state.to_dict()
+        data["session_id"] = sid
+        data["timestamp"] = time.time()
+        data["summary"] = summary
+
+        path = chk_dir / f"{sid}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+        logger.info(
+            "Checkpoint saved: %s (step %d, %d tokens)",
+            sid,
+            state.step_count,
+            state.total_tokens_used,
+        )
+        return sid
+
+    def checkpoint_load(self, session_id: str) -> AgentState | None:
+        """
+        Load an agent state from a checkpoint.
+
+        Args:
+            session_id: The session ID to load.
+
+        Returns:
+            AgentState if found, None otherwise.
+        """
+        path = self.checkpoint_dir / f"{session_id}.json"
+        if not path.exists():
+            logger.warning("Checkpoint not found: %s", path)
+            return None
+
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+
+        return AgentState.from_dict(data)
+
+    def list_checkpoints(self) -> list[dict[str, Any]]:
+        """List all checkpoint files with metadata."""
+        chk_dir = self.checkpoint_dir
+        if not chk_dir.exists():
+            return []
+
+        checkpoints: list[dict[str, Any]] = []
+        for path in sorted(chk_dir.glob("*.json"), reverse=True):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                checkpoints.append(
+                    {
+                        "session_id": data.get("session_id", path.stem),
+                        "timestamp": data.get("timestamp", 0),
+                        "step_number": data.get("step_number", 0),
+                        "task": data.get("task", "")[:80],
+                        "summary": data.get("summary", ""),
+                        "path": str(path),
+                    }
+                )
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        return checkpoints
+
+    def compact_checkpoints(self, max_age_days: int = 90) -> int:
+        """
+        Prune old checkpoints.
+
+        Deletes checkpoints older than *max_age_days* that have a low
+        step count (indicating trivial/abandoned sessions).
+
+        Returns the number of checkpoints pruned.
+        """
+        chk_dir = self.checkpoint_dir
+        if not chk_dir.exists():
+            return 0
+
+        cutoff = time.time() - (max_age_days * 86400)
+        pruned = 0
+
+        for path in list(chk_dir.glob("*.json")):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                ts = data.get("timestamp", 0)
+                steps = data.get("step_number", 0)
+                # Prune old checkpoints with few steps (abandoned sessions)
+                if ts < cutoff and steps < 5:
+                    path.unlink()
+                    pruned += 1
+                    logger.debug("Pruned checkpoint: %s", path.name)
+            except (json.JSONDecodeError, OSError):
+                path.unlink()
+                pruned += 1
+
+        if pruned:
+            logger.info("Checkpoint compaction: pruned %d old checkpoints", pruned)
+        return pruned
 
     # ── Loading AGENTS.md ─────────────────────────────────────
 
@@ -349,9 +477,7 @@ class MemoryStore:
 
         total = self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         by_type: dict[str, int] = {}
-        rows = self._conn.execute(
-            "SELECT type, COUNT(*) FROM memories GROUP BY type"
-        ).fetchall()
+        rows = self._conn.execute("SELECT type, COUNT(*) FROM memories GROUP BY type").fetchall()
         for type_name, count in rows:
             by_type[type_name] = count
 

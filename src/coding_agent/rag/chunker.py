@@ -58,9 +58,7 @@ _LANG_RULES: dict[str, dict[str, Any]] = {
     },
     ".rs": {
         "function": re.compile(r"^(\s*)(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*[\(<]", re.MULTILINE),
-        "class": re.compile(
-            r"^(\s*)(?:pub\s+)?(?:struct|enum|impl|trait)\s+(\w+)", re.MULTILINE
-        ),
+        "class": re.compile(r"^(\s*)(?:pub\s+)?(?:struct|enum|impl|trait)\s+(\w+)", re.MULTILINE),
         "comment": "//",
         "indent_size": 4,
     },
@@ -222,7 +220,10 @@ class RegexChunker(Chunker):
         if first_line > 1:
             chunks.append(
                 self._make_chunk(
-                    path, content, 1, first_line - 1,
+                    path,
+                    content,
+                    1,
+                    first_line - 1,
                     symbol_name=f"{path.stem}_module",
                     symbol_kind=SymbolKind.MODULE,
                 )
@@ -248,7 +249,10 @@ class RegexChunker(Chunker):
                     )
                     chunks.append(
                         self._make_chunk(
-                            path, content, offset, chunk_end,
+                            path,
+                            content,
+                            offset,
+                            chunk_end,
                             symbol_name=f"{name}{suffix}",
                             symbol_kind=kind,
                         )
@@ -257,7 +261,10 @@ class RegexChunker(Chunker):
             else:
                 chunks.append(
                     self._make_chunk(
-                        path, content, start_line, end_line,
+                        path,
+                        content,
+                        start_line,
+                        end_line,
                         symbol_name=name,
                         symbol_kind=kind,
                     )
@@ -311,6 +318,7 @@ class AstChunker(Chunker):
         self._ts_available = False
         try:
             import tree_sitter_languages  # type: ignore[import-not-found]  # noqa: F401
+
             self._ts_available = True
             logger.info("tree-sitter-languages available — AST chunking enabled")
         except ImportError:
@@ -351,11 +359,20 @@ class AstChunker(Chunker):
 
         # Node types that represent symbol definitions
         definition_types = {
-            "function_definition", "class_definition", "method_definition",
+            "function_definition",
+            "class_definition",
+            "method_definition",
             "decorated_definition",  # Python decorators
-            "function_item", "impl_item", "struct_item", "enum_item", "trait_item",  # Rust
-            "function_declaration", "class_declaration", "interface_declaration",  # TS
-            "method_declaration", "type_declaration",  # Go
+            "function_item",
+            "impl_item",
+            "struct_item",
+            "enum_item",
+            "trait_item",  # Rust
+            "function_declaration",
+            "class_declaration",
+            "interface_declaration",  # TS
+            "method_declaration",
+            "type_declaration",  # Go
         }
 
         _lines = content.split("\n")
@@ -381,7 +398,10 @@ class AstChunker(Chunker):
                         part = (offset - start_line) // max_lines + 1
                         chunks.append(
                             self._make_chunk(
-                                path, content, offset, chunk_end,
+                                path,
+                                content,
+                                offset,
+                                chunk_end,
                                 symbol_name=f"{name}_part{part}" if name else None,
                                 symbol_kind=kind,
                             )
@@ -390,7 +410,10 @@ class AstChunker(Chunker):
                 else:
                     chunks.append(
                         self._make_chunk(
-                            path, content, start_line, end_line,
+                            path,
+                            content,
+                            start_line,
+                            end_line,
                             symbol_name=name,
                             symbol_kind=kind,
                         )
@@ -409,11 +432,17 @@ class AstChunker(Chunker):
         # Add module-level code (before first definition)
         first_start = min(c.line_start for c in chunks)
         if first_start > 1:
-            chunks.insert(0, self._make_chunk(
-                path, content, 1, first_start - 1,
-                symbol_name=f"{path.stem}_module",
-                symbol_kind=SymbolKind.MODULE,
-            ))
+            chunks.insert(
+                0,
+                self._make_chunk(
+                    path,
+                    content,
+                    1,
+                    first_start - 1,
+                    symbol_name=f"{path.stem}_module",
+                    symbol_kind=SymbolKind.MODULE,
+                ),
+            )
 
         # Sort by line number
         chunks.sort(key=lambda c: c.line_start)
