@@ -145,7 +145,6 @@ The following models have been tested with `scripts/test_tool_calling.py`:
 | Model | Tools Passed | Notes |
 |---|---|---|
 | `qwen3.5:9b-mlx` | **14/14** ✅ | Recommended for general use — strong tool calling |
-| `huihui_ai/granite4.1-abliterated:8b-q4_K` | Likely 14/14 | 8B class, expected to pass all tools |
 | `gemma3:270m-it-q8_0` | ❌ 0/14 | Too small — does not support tool calling at all |
 
 ### Testing a model before using it
